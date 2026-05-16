@@ -769,8 +769,8 @@ class PanelSession:
                 connector=connector,
                 headers={
                     "User-Agent": (
-                        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
                     ),
                     "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8,en;q=0.7",
                     "Accept": (
@@ -778,7 +778,10 @@ class PanelSession:
                         "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
                     ),
                     "Upgrade-Insecure-Requests": "1",
-                    "X-Requested-With": "XMLHttpRequest",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
                 },
                 timeout=aiohttp.ClientTimeout(total=60, connect=20),
                 cookie_jar=aiohttp.CookieJar(unsafe=True),
@@ -823,7 +826,16 @@ class PanelSession:
                     etkk = m.group(1)
 
             capt = solve_captcha(login_html)
-            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}")
+            # log raw captcha area for debugging
+            soup_dbg = BeautifulSoup(login_html, "html.parser")
+            raw_txt  = soup_dbg.get_text(" ", strip=True)
+            capt_ctx = ""
+            for kw in ["what is", "What is", "captcha", "capt", "="]:
+                idx = raw_txt.lower().find(kw.lower())
+                if idx >= 0:
+                    capt_ctx = raw_txt[max(0,idx-10):idx+40].strip()
+                    break
+            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}, ctx={repr(capt_ctx)}")
 
             form_data = aiohttp.FormData()
             if etkk:
