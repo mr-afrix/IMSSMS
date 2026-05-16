@@ -1108,10 +1108,9 @@ async def sms_worker(app):
                 if _startup_rows:
                     import hashlib as _hl
                     for _r in _startup_rows:
-                        _h = _hl.md5(f"{_r['date']}{_r['number']}{_r['sms']}".encode()).hexdigest()
+                        _h = _hl.md5(f"{str(_r['date']).strip()}{str(_r['number']).strip()}{str(_r['sms']).strip()}".encode()).hexdigest()
                         otp_cache.add(_h)
                     logger.info(f"Startup cache: {len(_startup_rows)} existing rows pre-cached")
-
 
             keepalive_timer += POLL_INTERVAL
             if keepalive_timer >= KEEPALIVE_INTERVAL:
@@ -1151,7 +1150,7 @@ async def sms_worker(app):
                         if not otp:
                             continue
 
-                        h = hashlib.md5(f"{date}{number}{sms}".encode()).hexdigest()
+                        h = hashlib.md5(f"{str(date).strip()}{str(number).strip()}{str(sms).strip()}".encode()).hexdigest()
 
                         if h in otp_cache:
                             continue
