@@ -110,7 +110,7 @@ OTP_GROUP_LINK      = "https://t.me/afrixotpgc"
 OTP_GROUP_ID        = -1003053441379
 FORCE_CHANNELS      = ["@sage_xd", "@mr_afrix", "@oxellabs"]
 
-BANNER_URL          = "https://files.catbox.moe/apvmgp.jpg"
+BANNER_URL          = "https://files.catbox.moe/gxtkgb.jpg"
 
 DB_FILE             = "bot.db"
 PORT                = int(os.environ.get("PORT", 8080))
@@ -459,14 +459,14 @@ def extract_numbers_from_content(content, filename):
 def join_markup():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("SAGE", url=MAIN_CHANNEL_LINK),
-            InlineKeyboardButton("MR.AFRIX", url=BACKUP_CHANNEL_LINK),
+            InlineKeyboardButton("sᴀɢᴇ", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("ᴍʀ.ᴀғʀɪx", url=BACKUP_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("OxelLabs", url=THIRD_CHANNEL_LINK),
-            InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
+            InlineKeyboardButton("ᴏxᴇʟʟᴀʙs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("ᴏᴛᴘ ɢʀᴏᴜᴘ", url=OTP_GROUP_LINK),
         ],
-        [InlineKeyboardButton("I've Joined — Verify", callback_data="check_join")],
+        [InlineKeyboardButton("ɪ'ᴠᴇ ᴊᴏɪɴᴇᴅ — ᴠᴇʀɪғʏ", callback_data="check_join")],
     ])
 
 
@@ -487,23 +487,23 @@ def main_menu_reply(user_id=None):
 def main_menu_inline(user_id=None):
     buttons = [
         [
-            InlineKeyboardButton("📡 Live OTPs", url=OTP_GROUP_LINK),
-            InlineKeyboardButton("📢 SAGE", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("ʟɪᴠᴇ ᴏᴛᴘs", url=OTP_GROUP_LINK),
+            InlineKeyboardButton("sᴀɢᴇ", url=MAIN_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("🌍 Get Number", callback_data="menu_get_number"),
-            InlineKeyboardButton("📡 Backup", url=BACKUP_CHANNEL_LINK),
+            InlineKeyboardButton("ɢᴇᴛ ɴᴜᴍʙᴇʀ", callback_data="menu_get_number"),
+            InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ", url=BACKUP_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("📊 Traffic", callback_data="menu_traffic"),
-            InlineKeyboardButton("ℹ️ About", callback_data="menu_about"),
+            InlineKeyboardButton("ᴛʀᴀғғɪᴄ", callback_data="menu_traffic"),
+            InlineKeyboardButton("ᴀʙᴏᴜᴛ", callback_data="menu_about"),
         ],
         [
-            InlineKeyboardButton("🔱 OxelLabs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("ᴏxᴇʟʟᴀʙs", url=THIRD_CHANNEL_LINK),
         ],
     ]
     if user_id and is_admin(user_id):
-        buttons.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="menu_admin")])
+        buttons.append([InlineKeyboardButton("ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ", callback_data="menu_admin")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -511,12 +511,12 @@ def otp_buttons():
     # Layout matches screenshot: [📢 Channel | 📡 MR.AFRIX] / [OxelLabs | 🤖 Bot]
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📢 Channel", url=MAIN_CHANNEL_LINK),
-            InlineKeyboardButton("📡 MR.AFRIX", url=BACKUP_CHANNEL_LINK),
+            InlineKeyboardButton("ᴄʜᴀɴɴᴇʟ", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("ᴍʀ.ᴀғʀɪx", url=BACKUP_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("🔱 OxelLabs", url=THIRD_CHANNEL_LINK),
-            InlineKeyboardButton("🤖 Bot", url=BOT_LINK),
+            InlineKeyboardButton("ᴏxᴇʟʟᴀʙs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("ʙᴏᴛ", url=BOT_LINK),
         ],
     ])
 
@@ -524,20 +524,20 @@ def otp_buttons():
 def admin_markup():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Broadcast", callback_data="adm_broadcast"),
-            InlineKeyboardButton("Add Numbers", callback_data="adm_numbers"),
+            InlineKeyboardButton("ʙʀᴏᴀᴅᴄᴀsᴛ", callback_data="adm_broadcast"),
+            InlineKeyboardButton("ᴀᴅᴅ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers"),
         ],
         [
-            InlineKeyboardButton("Stats", callback_data="adm_stats"),
-            InlineKeyboardButton("Worker", callback_data="adm_worker"),
+            InlineKeyboardButton("sᴛᴀᴛs", callback_data="adm_stats"),
+            InlineKeyboardButton("ᴡᴏʀᴋᴇʀ", callback_data="adm_worker"),
         ],
         [
-            InlineKeyboardButton("Maintenance", callback_data="adm_toggle_maint"),
-            InlineKeyboardButton("Traffic Log", callback_data="adm_traffic"),
+            InlineKeyboardButton("ᴍᴀɪɴᴛᴇɴᴀɴᴄᴇ", callback_data="adm_toggle_maint"),
+            InlineKeyboardButton("ᴛʀᴀғғɪᴄ ʟᴏɢ", callback_data="adm_traffic"),
         ],
         [
-            InlineKeyboardButton("Add Admin", callback_data="adm_add_admin"),
-            InlineKeyboardButton("Back", callback_data="menu_back"),
+            InlineKeyboardButton("ᴀᴅᴅ ᴀᴅᴍɪɴ", callback_data="adm_add_admin"),
+            InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="menu_back"),
         ],
     ])
 
@@ -571,21 +571,21 @@ def admin_text():
 
 def back_to_menu():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Back", callback_data="menu_back")]]
+        [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="menu_back")]]
     )
 
 
 def back_to_admin():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Back to Admin", callback_data="adm_back")]]
+        [[InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")]]
     )
 
 
 def cancel_state_markup(back_cb="adm_back"):
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Cancel", callback_data="adm_cancel_state"),
-            InlineKeyboardButton("Back", callback_data=back_cb),
+            InlineKeyboardButton("ᴄᴀɴᴄᴇʟ", callback_data="adm_cancel_state"),
+            InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=back_cb),
         ]
     ])
 
@@ -607,7 +607,7 @@ def build_service_grid():
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("Back", callback_data="menu_back")])
+    buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="menu_back")])
     return rows, InlineKeyboardMarkup(buttons)
 
 
@@ -630,7 +630,7 @@ def build_country_grid_for_service(service):
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("Back to Services", callback_data="menu_get_number")])
+    buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ sᴇʀᴠɪᴄᴇs", callback_data="menu_get_number")])
     return rows, InlineKeyboardMarkup(buttons)
 
 
@@ -644,8 +644,8 @@ def _service_picker_markup(mode="file"):
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("Custom Service", callback_data=f"adm_svc_custom__{mode}")])
-    buttons.append([InlineKeyboardButton("Cancel", callback_data="adm_cancel_state")])
+    buttons.append([InlineKeyboardButton("ᴄᴜsᴛᴏᴍ sᴇʀᴠɪᴄᴇ", callback_data=f"adm_svc_custom__{mode}")])
+    buttons.append([InlineKeyboardButton("ᴄᴀɴᴄᴇʟ", callback_data="adm_cancel_state")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -1055,14 +1055,15 @@ def format_otp_message(row, otp):
     service            = (row.get("service") or "Unknown").strip()
 
     text = (
-        f"<b>OTP Received</b>\n"
+        f"ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ\n"
         f"┌\n"
-        f"├ <b>Number</b>   : <code>{masked}</code>\n"
-        f"├ <b>Country</b>  : {flag} {country_name}\n"
-        f"├ <b>Service</b>  : {service}\n"
-        f"├ <b>OTP</b>      : <code>{otp}</code>\n"
-        f"├ <b>SMS</b>      : {sms_txt}\n"
-        f"└ <b>Time</b>     : {row.get('date', '—')}\n"
+        f"├ ɴᴜᴍʙᴇʀ   : <code>{masked}</code>\n"
+        f"├ ᴄᴏᴜɴᴛʀʜ  : {flag} {country_name}\n"
+        f"├ sᴇʀᴠɪᴄᴇ  : {service}\n"
+        f"├ ᴏᴛᴘ      : <code>{otp}</code>\n"
+        f"├ sᴍs      :\n"
+        f"<blockquote>{sms_txt}</blockquote>\n"
+        f"└ ᴛɪᴍᴇ     : {row.get('date', '—')}\n"
     )
     return text, otp_buttons()
 
@@ -1101,6 +1102,16 @@ async def sms_worker(app):
                     app,
                     f"<b>Panel Login Successful</b>\n{BOT_NAME} is live and monitoring.",
                 )
+                # silent startup fetch — pre-cache all existing rows so we
+                # never re-send OTPs that arrived before the bot started
+                _startup_rows, _ = await panel.fetch_cdr()
+                if _startup_rows:
+                    import hashlib as _hl
+                    for _r in _startup_rows:
+                        _h = _hl.md5(f"{_r['date']}{_r['number']}{_r['sms']}".encode()).hexdigest()
+                        otp_cache.add(_h)
+                    logger.info(f"Startup cache: {len(_startup_rows)} existing rows pre-cached")
+
 
             keepalive_timer += POLL_INTERVAL
             if keepalive_timer >= KEEPALIVE_INTERVAL:
@@ -1477,10 +1488,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )["c"]
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
+            [InlineKeyboardButton("ᴄʜᴀɴɢᴇ ɴᴜᴍʙᴇʀ", callback_data=f"chgn__{country}__{service}__{num_id}")],
             [
-                InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
-                InlineKeyboardButton("Back", callback_data=f"gns__{service}"),
+                InlineKeyboardButton("ᴏᴛᴘ ɢʀᴏᴜᴘ", url=OTP_GROUP_LINK),
+                InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f"gns__{service}"),
             ],
         ])
 
@@ -1555,10 +1566,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )["c"]
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
+            [InlineKeyboardButton("ᴄʜᴀɴɢᴇ ɴᴜᴍʙᴇʀ", callback_data=f"chgn__{country}__{service}__{num_id}")],
             [
-                InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
-                InlineKeyboardButton("Back", callback_data=f"gns__{service}"),
+                InlineKeyboardButton("ᴏᴛᴘ ɢʀᴏᴜᴘ", url=OTP_GROUP_LINK),
+                InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f"gns__{service}"),
             ],
         ])
 
@@ -1649,8 +1660,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"┃\n"
             f"╰━━━━━━━━━━━⊷",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Force Re-Login", callback_data="adm_relogin")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ғᴏʀᴄᴇ ʀᴇ-ʟᴏɢɪɴ", callback_data="adm_relogin")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1708,8 +1719,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query,
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Export CSV", callback_data="adm_export_traffic")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ᴇxᴘᴏʀᴛ ᴄsᴠ", callback_data="adm_export_traffic")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1759,11 +1770,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("Add Numbers", callback_data="adm_add_numbers"),
-                    InlineKeyboardButton("Remove Slot", callback_data="adm_remove_slot"),
+                    InlineKeyboardButton("ᴀᴅᴅ ɴᴜᴍʙᴇʀs", callback_data="adm_add_numbers"),
+                    InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ sʟᴏᴛ", callback_data="adm_remove_slot"),
                 ],
-                [InlineKeyboardButton("Export", callback_data="adm_export_numbers")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ᴇxᴘᴏʀᴛ", callback_data="adm_export_numbers")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1790,7 +1801,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = f"{r['country']} [{r['service']}] ({r['cnt']})"
             cb    = f"adm_delslot__{r['country']}__{r['service']}"
             buttons.append([InlineKeyboardButton(label, callback_data=cb)])
-        buttons.append([InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")])
+        buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")])
         await edit_with_banner(
             query,
             "Select slot to delete:",
@@ -1809,8 +1820,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query,
             f"Deleted <b>{deleted}</b> numbers from <b>{country} [{service}]</b>.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -2062,10 +2073,10 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"Country: <b>{country}</b>\n\nHow do you want to add numbers?",
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("Upload File", callback_data="adm_addmethod_file"),
-                    InlineKeyboardButton("Type Numbers", callback_data="adm_addmethod_type"),
+                    InlineKeyboardButton("ᴜᴘʟᴏᴀᴅ ғɪʟᴇ", callback_data="adm_addmethod_file"),
+                    InlineKeyboardButton("ᴛʏᴘᴇ ɴᴜᴍʙᴇʀs", callback_data="adm_addmethod_type"),
                 ],
-                [InlineKeyboardButton("Cancel", callback_data="adm_cancel_state")],
+                [InlineKeyboardButton("ᴄᴀɴᴄᴇʟ", callback_data="adm_cancel_state")],
             ]),
         )
         return
@@ -2118,8 +2129,8 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.bot, update.effective_chat.id,
             f"Done!\nCountry: {country}\nService: {service}\nAdded: {count}\nDupes: {dupes}",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -2167,16 +2178,16 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=result_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                    [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
                 ]),
             )
         except Exception:
             await send_with_banner(
                 context.bot, update.effective_chat.id, result_text,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                    [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
                 ]),
             )
     except Exception as e:
