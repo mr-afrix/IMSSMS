@@ -84,7 +84,6 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ── CONFIG ──────────────────────────────────────────────────────────────────
 BOT_TOKEN           = "8313925262:AAFBgY13zTdARtEuWuIdFp8-rKac6DopNjU"
 BOT_NAME            = "ᴍʀ.ᴀғʀɪx"
 BOT_USERNAME        = "mrafrix_bot"
@@ -114,7 +113,7 @@ BANNER_URL          = "https://files.catbox.moe/gxtkgb.jpg"
 
 DB_FILE             = "bot.db"
 PORT                = int(os.environ.get("PORT", 8080))
-POLL_INTERVAL       = 5          # faster: every 5s
+POLL_INTERVAL       = 5
 KEEPALIVE_INTERVAL  = 300
 FLOOD_LIMIT         = 5
 FLOOD_WINDOW        = 10
@@ -220,7 +219,6 @@ DEFAULT_SERVICES = [
 ]
 
 
-# ── DATABASE ─────────────────────────────────────────────────────────────────
 class Database:
     def __init__(self, path):
         self._path = path
@@ -311,7 +309,6 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_nums_service ON numbers(service);
             """)
             self._conn.commit()
-            # safe migrations for existing DBs with old schemas
             migrations = [
                 "ALTER TABLE traffic ADD COLUMN range_name TEXT",
                 "ALTER TABLE traffic ADD COLUMN service TEXT",
@@ -324,7 +321,7 @@ class Database:
                     self._conn.execute(sql)
                     self._conn.commit()
                 except Exception:
-                    pass  # column already exists — fine
+                    pass
 
     def get_setting(self, key, default=""):
         row = self.fetchone("SELECT value FROM settings WHERE key=?", (key,))
@@ -339,7 +336,6 @@ class Database:
 db = Database(DB_FILE)
 
 
-# ── HELPERS ──────────────────────────────────────────────────────────────────
 def get_country_info(number):
     clean = re.sub(r"\D", "", str(number))
     for length in (3, 2, 1):
@@ -455,7 +451,6 @@ def extract_numbers_from_content(content, filename):
     return list(nums)
 
 
-# ── MARKUPS ───────────────────────────────────────────────────────────────────
 def join_markup():
     return InlineKeyboardMarkup([
         [
@@ -508,7 +503,6 @@ def main_menu_inline(user_id=None):
 
 
 def otp_buttons():
-    # Layout matches screenshot: [📢 Channel | 📡 MR.AFRIX] / [OxelLabs | 🤖 Bot]
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("ᴄʜᴀɴɴᴇʟ", url=MAIN_CHANNEL_LINK),
@@ -649,7 +643,6 @@ def _service_picker_markup(mode="file"):
     return InlineKeyboardMarkup(buttons)
 
 
-# ── SEND HELPERS ──────────────────────────────────────────────────────────────
 async def send_with_banner(bot, chat_id, text, reply_markup=None, disable_web_page_preview=False):
     try:
         return await bot.send_photo(
@@ -714,7 +707,6 @@ async def notify_admins(app, text):
                 pass
 
 
-# ── SSL ───────────────────────────────────────────────────────────────────────
 def _make_ssl_context():
     try:
         return ssl.create_default_context(cafile=certifi.where())
@@ -722,7 +714,6 @@ def _make_ssl_context():
         return ssl.create_default_context()
 
 
-# ── PANEL SESSION ─────────────────────────────────────────────────────────────
 def solve_captcha(html):
     try:
         soup      = BeautifulSoup(html, "html.parser")
@@ -754,7 +745,6 @@ class PanelSession:
     def __init__(self):
         self._session   = None
         self._logged_in = False
-        self._sesskey   = ""
 
     async def _get_session(self):
         if self._session is None or self._session.closed:
@@ -796,7 +786,6 @@ class PanelSession:
 
             sess = await self._get_session()
 
-            # fetch login page for etkk token + captcha
             login_html = ""
             try:
                 async with sess.get(
@@ -813,8 +802,8 @@ class PanelSession:
             if not login_html:
                 return False
 
-            soup = BeautifulSoup(login_html, "html.parser")
-            etkk = ""
+            soup     = BeautifulSoup(login_html, "html.parser")
+            etkk     = ""
             etkk_inp = soup.find("input", {"name": "etkk"})
             if etkk_inp:
                 etkk = etkk_inp.get("value", "")
@@ -825,17 +814,8 @@ class PanelSession:
                 if m:
                     etkk = m.group(1)
 
-            capt = solve_captcha(login_html)
-            # log raw captcha area for debugging
-            soup_dbg = BeautifulSoup(login_html, "html.parser")
-            raw_txt  = soup_dbg.get_text(" ", strip=True)
-            capt_ctx = ""
-            for kw in ["what is", "What is", "captcha", "capt", "="]:
-                idx = raw_txt.lower().find(kw.lower())
-                if idx >= 0:
-                    capt_ctx = raw_txt[max(0,idx-10):idx+40].strip()
-                    break
-            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}, ctx={repr(capt_ctx)}")
+            capt     = solve_captcha(login_html)
+            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}")
 
             form_data = aiohttp.FormData()
             if etkk:
@@ -848,8 +828,8 @@ class PanelSession:
                 PANEL_SIGNIN_URL,
                 data=form_data,
                 headers={
-                    "Referer": PANEL_LOGIN_PAGE,
-                    "Origin": PANEL_BASE,
+                    "Referer":        PANEL_LOGIN_PAGE,
+                    "Origin":         PANEL_BASE,
                     "Sec-Fetch-Site": "same-origin",
                     "Sec-Fetch-Mode": "navigate",
                     "Sec-Fetch-User": "?1",
@@ -860,18 +840,16 @@ class PanelSession:
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 final_url = str(resp.url).lower()
-                body      = await resp.text(errors="replace")
                 logger.info(f"Signin: status={resp.status}, url={final_url}")
 
-                if "login" not in final_url and resp.status in (200, 302):
+                logged_in = (
+                    "login" not in final_url
+                    or any(w in final_url for w in ("dashboard", "client", "agent", "sms"))
+                ) and resp.status in (200, 302)
+
+                if logged_in:
                     self._logged_in = True
-                    # extract sesskey from CDR page
-                    await self._fetch_sesskey(sess)
-                    logger.info(f"Panel login OK -> sesskey={'found' if self._sesskey else 'missing'}")
-                    return True
-                if any(w in final_url for w in ("dashboard", "client", "agent", "sms")):
-                    self._logged_in = True
-                    await self._fetch_sesskey(sess)
+                    logger.info("Panel login OK")
                     return True
 
                 logger.error(f"Login failed | url={final_url} | status={resp.status}")
@@ -880,40 +858,6 @@ class PanelSession:
         except Exception as e:
             logger.error(f"Login exception: {type(e).__name__}: {e}")
             return False
-
-    async def _fetch_sesskey(self, sess):
-        """Hit the CDR stats page to grab the sesskey DataTables uses."""
-        try:
-            async with sess.get(
-                PANEL_CDR_URL,
-                allow_redirects=True,
-                timeout=aiohttp.ClientTimeout(total=20),
-            ) as resp:
-                html = await resp.text(errors="replace")
-                # try multiple patterns — the panel embeds it in JS in various ways
-                patterns = [
-                    r'["\']sesskey["\']\s*[,:=]\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
-                    r'sesskey\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
-                    r'var\s+sesskey\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
-                    r'data\[.sesskey.\]\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
-                    r'sesskey["\s:=]+([A-Za-z0-9+/=_\-]{10,})',
-                ]
-                for pat in patterns:
-                    m = re.search(pat, html)
-                    if m:
-                        self._sesskey = m.group(1)
-                        logger.info(f"sesskey extracted: {self._sesskey[:12]}...")
-                        return
-                # fallback: try hidden input field
-                soup = BeautifulSoup(html, "html.parser")
-                inp  = soup.find("input", {"name": "sesskey"})
-                if inp:
-                    self._sesskey = inp.get("value", "")
-                    logger.info(f"sesskey from input: {self._sesskey[:12]}...")
-                else:
-                    logger.warning("sesskey not found — CDR requests will proceed without it")
-        except Exception as e:
-            logger.warning(f"sesskey fetch warning: {e}")
 
     async def keepalive(self):
         try:
@@ -928,18 +872,13 @@ class PanelSession:
                     self._logged_in = False
                     logger.warning("Keepalive: session expired")
                     return False
-                logger.info(f"Keepalive OK")
+                logger.info("Keepalive OK")
                 return True
         except Exception as e:
             logger.error(f"Keepalive error: {e}")
             return False
 
     async def fetch_cdr(self):
-        """
-        Fetch SMS CDR data from the DataTables JSON endpoint.
-        Returns (list_of_rows, error_string_or_None)
-        Each row dict: {date, range, number, service, sms}
-        """
         try:
             sess = await self._get_session()
             now  = datetime.now()
@@ -956,7 +895,6 @@ class PanelSession:
                 "fgnumber":       "",
                 "fgcli":          "",
                 "fg":             "0",
-                "sesskey":        self._sesskey,
                 "sEcho":          "1",
                 "iColumns":       "7",
                 "sColumns":       ",,,,,,",
@@ -1009,12 +947,12 @@ class PanelSession:
                 PANEL_DATA_URL,
                 params=params,
                 headers={
-                    "Referer":           PANEL_CDR_URL,
-                    "Accept":            "application/json, text/javascript, */*; q=0.01",
-                    "X-Requested-With":  "XMLHttpRequest",
-                    "Sec-Fetch-Dest":    "empty",
-                    "Sec-Fetch-Mode":    "cors",
-                    "Sec-Fetch-Site":    "same-origin",
+                    "Referer":          PANEL_CDR_URL,
+                    "Accept":           "application/json, text/javascript, */*; q=0.01",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Sec-Fetch-Dest":   "empty",
+                    "Sec-Fetch-Mode":   "cors",
+                    "Sec-Fetch-Site":   "same-origin",
                 },
                 allow_redirects=True,
                 timeout=aiohttp.ClientTimeout(total=40),
@@ -1026,14 +964,13 @@ class PanelSession:
 
                 text = await resp.text(errors="replace")
 
-                # parse JSON
                 try:
                     data = json.loads(text)
                 except Exception:
                     logger.warning(f"CDR response not JSON, len={len(text)}")
                     return None, "parse_error"
 
-                aa = data.get("aaData", [])
+                aa   = data.get("aaData", [])
                 rows = []
                 for row in aa:
                     if len(row) < 5:
@@ -1059,7 +996,6 @@ class PanelSession:
 panel = PanelSession()
 
 
-# ── OTP MESSAGE FORMAT ────────────────────────────────────────────────────────
 def format_otp_message(row, otp):
     masked             = mask_number(row["number"])
     country_name, flag = get_country_info(row["number"])
@@ -1080,7 +1016,6 @@ def format_otp_message(row, otp):
     return text, otp_buttons()
 
 
-# ── WORKER LOOP ───────────────────────────────────────────────────────────────
 async def sms_worker(app):
     global maintenance
     if worker_info["running"]:
@@ -1089,6 +1024,7 @@ async def sms_worker(app):
     worker_info["running"] = True
     keepalive_timer        = 0
     last_reset_day         = datetime.now().day
+    session_expired_notified = False
 
     while True:
         try:
@@ -1113,36 +1049,34 @@ async def sms_worker(app):
                 worker_info["logged_in"]  = True
                 worker_info["last_login"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 worker_info["errors"]     = 0
+                session_expired_notified  = False
                 await notify_admins(
                     app,
                     f"ᴘᴀɴᴇʟ ʟᴏɢɪɴ sᴜᴄᴄᴇssғᴜʟ\n{BOT_NAME} ɪs ʟɪᴠᴇ ᴀɴᴅ ᴍᴏɴɪᴛᴏʀɪɴɢ.",
                 )
-                # silent startup fetch — pre-cache all existing rows so we
-                # never re-send OTPs that arrived before the bot started
-                _startup_rows, _ = await panel.fetch_cdr()
-                if _startup_rows:
-                    import hashlib as _hl
-                    for _r in _startup_rows:
-                        _h = _hl.md5(f"{str(_r['date']).strip()}{str(_r['number']).strip()}{str(_r['sms']).strip()}".encode()).hexdigest()
-                        otp_cache.add(_h)
-                    logger.info(f"Startup cache: {len(_startup_rows)} existing rows pre-cached")
-                continue  # skip sending on first loop — only new OTPs from next poll
 
             keepalive_timer += POLL_INTERVAL
             if keepalive_timer >= KEEPALIVE_INTERVAL:
                 alive = await panel.keepalive()
+                keepalive_timer = 0
                 if not alive:
                     panel._logged_in         = False
                     worker_info["logged_in"] = False
-                    await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
-                keepalive_timer = 0
+                    if not session_expired_notified:
+                        session_expired_notified = True
+                        await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
+                    await asyncio.sleep(POLL_INTERVAL)
+                    continue
 
             rows, err = await panel.fetch_cdr()
 
             if err == "session_expired":
                 panel._logged_in         = False
                 worker_info["logged_in"] = False
-                await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
+                if not session_expired_notified:
+                    session_expired_notified = True
+                    await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
+                await asyncio.sleep(POLL_INTERVAL)
                 continue
 
             if err:
@@ -1211,11 +1145,10 @@ async def sms_worker(app):
                         logger.error(f"Row error: {row_err}")
                         continue
 
-            # trim otp_cache to prevent unbounded memory growth
             if len(otp_cache) > 50000:
+                fresh = db.fetchall("SELECT hash FROM otp_history ORDER BY id DESC LIMIT 30000")
                 otp_cache.clear()
-                rows = db.fetchall("SELECT hash FROM otp_history ORDER BY id DESC LIMIT 30000")
-                for r in rows:
+                for r in fresh:
                     otp_cache.add(r["hash"])
 
             await asyncio.sleep(POLL_INTERVAL)
@@ -1235,7 +1168,6 @@ async def sms_worker(app):
     worker_info["running"] = False
 
 
-# ── GATE ──────────────────────────────────────────────────────────────────────
 BANNED_TEXT = "You have been banned from using this bot."
 MAINT_TEXT  = "Bot is under maintenance. Please check back soon."
 JOIN_TEXT   = (
@@ -1286,7 +1218,6 @@ async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return True
 
 
-# ── COMMAND HANDLERS ──────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
@@ -1344,7 +1275,6 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── CALLBACK HANDLER ──────────────────────────────────────────────────────────
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global maintenance
     query = update.callback_query
@@ -1603,7 +1533,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ── ADMIN ONLY BELOW ──────────────────────────────────────────────────────
     if not is_admin(user.id):
         return
 
@@ -1928,7 +1857,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# ── TEXT INPUT HANDLER ────────────────────────────────────────────────────────
 def _parse_broadcast_buttons(text):
     lines     = text.strip().splitlines()
     msg_lines = []
@@ -2000,13 +1928,11 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not state:
         return
 
-    # ADD ADMIN
     if state == "ADD_ADMIN":
         try:
             new_admin_id = int(text.strip())
             if new_admin_id not in ADMIN_IDS:
                 ADMIN_IDS.append(new_admin_id)
-                # persist to DB so it survives restarts
                 existing = db.get_setting("extra_admins")
                 ids = [i for i in existing.split(",") if i.strip()] if existing else []
                 if str(new_admin_id) not in ids:
@@ -2026,7 +1952,6 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         return
 
-    # BROADCAST
     if state == "BROADCAST":
         all_users       = db.fetchall("SELECT user_id FROM users WHERE is_banned=0")
         broadcast_msg, broadcast_markup = _parse_broadcast_buttons(text)
@@ -2151,7 +2076,6 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
 
-# ── DOCUMENT HANDLER ──────────────────────────────────────────────────────────
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user  = update.effective_user
     if not is_admin(user.id):
@@ -2211,7 +2135,6 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USER_STATE.pop(user.id, None)
 
 
-# ── HEALTH SERVER ─────────────────────────────────────────────────────────────
 async def health_handler(request):
     return web.Response(
         text=json.dumps({
@@ -2227,7 +2150,6 @@ async def health_handler(request):
     )
 
 
-# ── POST INIT ─────────────────────────────────────────────────────────────────
 async def post_init(application):
     global maintenance
 
@@ -2235,7 +2157,6 @@ async def post_init(application):
     if saved_maint == "1":
         maintenance = True
 
-    # restore persisted extra admins
     extra = db.get_setting("extra_admins")
     if extra:
         for eid in extra.split(","):
@@ -2272,7 +2193,6 @@ async def post_init(application):
     logger.info(f"{BOT_NAME} is fully live")
 
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
