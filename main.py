@@ -858,11 +858,23 @@ class PanelSession:
                 allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
-                location  = resp.headers.get("Location", "").lower()
+                location = resp.headers.get("Location", "")
                 logger.info(f"Signin: status={resp.status}, location={location}")
 
                 # Success = 302 redirect away from login page
-                if resp.status == 302 and "login" not in location:
+                if resp.status == 302 and "login" not in location.lower():
+                    # Follow the redirect manually so the session cookie is set
+                    redirect_url = location if location.startswith("http") else f"{PANEL_BASE}/{location.lstrip('./')}"
+                    try:
+                        async with sess.get(
+                            redirect_url,
+                            allow_redirects=True,
+                            timeout=aiohttp.ClientTimeout(total=20),
+                        ) as redir_resp:
+                            logger.info(f"Post-login redirect: status={redir_resp.status}, url={redir_resp.url}")
+                    except Exception as e:
+                        logger.warning(f"Post-login redirect warning: {e}")
+
                     self._logged_in = True
                     await self._fetch_sesskey(sess)
                     logger.info(f"Panel login OK -> sesskey={'found' if self._sesskey else 'missing'}")
@@ -883,6 +895,11 @@ class PanelSession:
                 allow_redirects=True,
                 timeout=aiohttp.ClientTimeout(total=20),
             ) as resp:
+                final_url = str(resp.url)
+                logger.info(f"sesskey fetch: status={resp.status}, url={final_url}")
+                if "login" in final_url.lower():
+                    logger.warning("sesskey fetch redirected to login — session not established")
+                    return
                 html = await resp.text(errors="replace")
                 # try multiple patterns — the panel embeds it in JS in various ways
                 patterns = [
