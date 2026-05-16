@@ -115,7 +115,7 @@ BANNER_URL          = "https://files.catbox.moe/gxtkgb.jpg"
 DB_FILE             = "bot.db"
 PORT                = int(os.environ.get("PORT", 8080))
 POLL_INTERVAL       = 5          # faster: every 5s
-KEEPALIVE_INTERVAL  = 60
+KEEPALIVE_INTERVAL  = 300
 FLOOD_LIMIT         = 5
 FLOOD_WINDOW        = 10
 NUMBER_COOLDOWN     = 30
@@ -311,6 +311,20 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_nums_service ON numbers(service);
             """)
             self._conn.commit()
+            # safe migrations for existing DBs with old schemas
+            migrations = [
+                "ALTER TABLE traffic ADD COLUMN range_name TEXT",
+                "ALTER TABLE traffic ADD COLUMN service TEXT",
+                "ALTER TABLE otp_history ADD COLUMN range_name TEXT",
+                "ALTER TABLE numbers ADD COLUMN use_date TEXT DEFAULT NULL",
+                "ALTER TABLE numbers ADD COLUMN used_by INTEGER DEFAULT NULL",
+            ]
+            for sql in migrations:
+                try:
+                    self._conn.execute(sql)
+                    self._conn.commit()
+                except Exception:
+                    pass  # column already exists — fine
 
     def get_setting(self, key, default=""):
         row = self.fetchone("SELECT value FROM settings WHERE key=?", (key,))
@@ -445,14 +459,14 @@ def extract_numbers_from_content(content, filename):
 def join_markup():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("SAGE", url=MAIN_CHANNEL_LINK),
-            InlineKeyboardButton("MR.AFRIX", url=BACKUP_CHANNEL_LINK),
+            InlineKeyboardButton("sᴀɢᴇ", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("ᴍʀ.ᴀғʀɪx", url=BACKUP_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("OxelLabs", url=THIRD_CHANNEL_LINK),
-            InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
+            InlineKeyboardButton("ᴏxᴇʟʟᴀʙs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("ᴏᴛᴘ ɢʀᴏᴜᴘ", url=OTP_GROUP_LINK),
         ],
-        [InlineKeyboardButton("I've Joined — Verify", callback_data="check_join")],
+        [InlineKeyboardButton("ɪ'ᴠᴇ ᴊᴏɪɴᴇᴅ — ᴠᴇʀɪғʏ", callback_data="check_join")],
     ])
 
 
@@ -473,33 +487,36 @@ def main_menu_reply(user_id=None):
 def main_menu_inline(user_id=None):
     buttons = [
         [
-            InlineKeyboardButton("Live OTPs", url=OTP_GROUP_LINK),
-            InlineKeyboardButton("SAGE", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("ʟɪᴠᴇ ᴏᴛᴘs", url=OTP_GROUP_LINK),
+            InlineKeyboardButton("sᴀɢᴇ", url=MAIN_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("Get Number", callback_data="menu_get_number"),
-            InlineKeyboardButton("OxelLabs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("ɢᴇᴛ ɴᴜᴍʙᴇʀ", callback_data="menu_get_number"),
+            InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ", url=BACKUP_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("Traffic", callback_data="menu_traffic"),
-            InlineKeyboardButton("About", callback_data="menu_about"),
+            InlineKeyboardButton("ᴛʀᴀғғɪᴄ", callback_data="menu_traffic"),
+            InlineKeyboardButton("ᴀʙᴏᴜᴛ", callback_data="menu_about"),
+        ],
+        [
+            InlineKeyboardButton("ᴏxᴇʟʟᴀʙs", url=THIRD_CHANNEL_LINK),
         ],
     ]
     if user_id and is_admin(user_id):
-        buttons.append([InlineKeyboardButton("Admin Panel", callback_data="menu_admin")])
+        buttons.append([InlineKeyboardButton("ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ", callback_data="menu_admin")])
     return InlineKeyboardMarkup(buttons)
 
 
 def otp_buttons():
-    # Layout: [SAGE | MR.AFRIX] / [Backup | Bot]
+    # Layout matches screenshot: [📢 Channel | 📡 MR.AFRIX] / [OxelLabs | 🤖 Bot]
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("SAGE", url=MAIN_CHANNEL_LINK),
-            InlineKeyboardButton("MR.AFRIX", url=BACKUP_CHANNEL_LINK),
+            InlineKeyboardButton("ᴄʜᴀɴɴᴇʟ", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("ᴍʀ.ᴀғʀɪx", url=BACKUP_CHANNEL_LINK),
         ],
         [
-            InlineKeyboardButton("OxelLabs", url=THIRD_CHANNEL_LINK),
-            InlineKeyboardButton("Bot", url=BOT_LINK),
+            InlineKeyboardButton("ᴏxᴇʟʟᴀʙs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("ʙᴏᴛ", url=BOT_LINK),
         ],
     ])
 
@@ -507,20 +524,20 @@ def otp_buttons():
 def admin_markup():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Broadcast", callback_data="adm_broadcast"),
-            InlineKeyboardButton("Add Numbers", callback_data="adm_numbers"),
+            InlineKeyboardButton("ʙʀᴏᴀᴅᴄᴀsᴛ", callback_data="adm_broadcast"),
+            InlineKeyboardButton("ᴀᴅᴅ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers"),
         ],
         [
-            InlineKeyboardButton("Stats", callback_data="adm_stats"),
-            InlineKeyboardButton("Worker", callback_data="adm_worker"),
+            InlineKeyboardButton("sᴛᴀᴛs", callback_data="adm_stats"),
+            InlineKeyboardButton("ᴡᴏʀᴋᴇʀ", callback_data="adm_worker"),
         ],
         [
-            InlineKeyboardButton("Maintenance", callback_data="adm_toggle_maint"),
-            InlineKeyboardButton("Traffic Log", callback_data="adm_traffic"),
+            InlineKeyboardButton("ᴍᴀɪɴᴛᴇɴᴀɴᴄᴇ", callback_data="adm_toggle_maint"),
+            InlineKeyboardButton("ᴛʀᴀғғɪᴄ ʟᴏɢ", callback_data="adm_traffic"),
         ],
         [
-            InlineKeyboardButton("Add Admin", callback_data="adm_add_admin"),
-            InlineKeyboardButton("Back", callback_data="menu_back"),
+            InlineKeyboardButton("ᴀᴅᴅ ᴀᴅᴍɪɴ", callback_data="adm_add_admin"),
+            InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="menu_back"),
         ],
     ])
 
@@ -554,21 +571,21 @@ def admin_text():
 
 def back_to_menu():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Back", callback_data="menu_back")]]
+        [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="menu_back")]]
     )
 
 
 def back_to_admin():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Back to Admin", callback_data="adm_back")]]
+        [[InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")]]
     )
 
 
 def cancel_state_markup(back_cb="adm_back"):
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Cancel", callback_data="adm_cancel_state"),
-            InlineKeyboardButton("Back", callback_data=back_cb),
+            InlineKeyboardButton("ᴄᴀɴᴄᴇʟ", callback_data="adm_cancel_state"),
+            InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=back_cb),
         ]
     ])
 
@@ -590,7 +607,7 @@ def build_service_grid():
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("Back", callback_data="menu_back")])
+    buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="menu_back")])
     return rows, InlineKeyboardMarkup(buttons)
 
 
@@ -613,7 +630,7 @@ def build_country_grid_for_service(service):
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("Back to Services", callback_data="menu_get_number")])
+    buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ sᴇʀᴠɪᴄᴇs", callback_data="menu_get_number")])
     return rows, InlineKeyboardMarkup(buttons)
 
 
@@ -627,8 +644,8 @@ def _service_picker_markup(mode="file"):
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("Custom Service", callback_data=f"adm_svc_custom__{mode}")])
-    buttons.append([InlineKeyboardButton("Cancel", callback_data="adm_cancel_state")])
+    buttons.append([InlineKeyboardButton("ᴄᴜsᴛᴏᴍ sᴇʀᴠɪᴄᴇ", callback_data=f"adm_svc_custom__{mode}")])
+    buttons.append([InlineKeyboardButton("ᴄᴀɴᴄᴇʟ", callback_data="adm_cancel_state")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -752,8 +769,8 @@ class PanelSession:
                 connector=connector,
                 headers={
                     "User-Agent": (
-                        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
                     ),
                     "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8,en;q=0.7",
                     "Accept": (
@@ -761,7 +778,10 @@ class PanelSession:
                         "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
                     ),
                     "Upgrade-Insecure-Requests": "1",
-                    "X-Requested-With": "XMLHttpRequest",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
                 },
                 timeout=aiohttp.ClientTimeout(total=60, connect=20),
                 cookie_jar=aiohttp.CookieJar(unsafe=True),
@@ -806,7 +826,16 @@ class PanelSession:
                     etkk = m.group(1)
 
             capt = solve_captcha(login_html)
-            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}")
+            # log raw captcha area for debugging
+            soup_dbg = BeautifulSoup(login_html, "html.parser")
+            raw_txt  = soup_dbg.get_text(" ", strip=True)
+            capt_ctx = ""
+            for kw in ["what is", "What is", "captcha", "capt", "="]:
+                idx = raw_txt.lower().find(kw.lower())
+                if idx >= 0:
+                    capt_ctx = raw_txt[max(0,idx-10):idx+40].strip()
+                    break
+            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}, ctx={repr(capt_ctx)}")
 
             form_data = aiohttp.FormData()
             if etkk:
@@ -826,26 +855,20 @@ class PanelSession:
                     "Sec-Fetch-User": "?1",
                     "Sec-Fetch-Dest": "document",
                 },
-                allow_redirects=True,
-                max_redirects=10,
+                allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
-                final_url = str(resp.url).lower()
-                body      = await resp.text(errors="replace")
-                logger.info(f"Signin: status={resp.status}, url={final_url}")
+                location  = resp.headers.get("Location", "").lower()
+                logger.info(f"Signin: status={resp.status}, location={location}")
 
-                if "login" not in final_url and resp.status in (200, 302):
+                # Success = 302 redirect away from login page
+                if resp.status == 302 and "login" not in location:
                     self._logged_in = True
-                    # extract sesskey from CDR page
                     await self._fetch_sesskey(sess)
                     logger.info(f"Panel login OK -> sesskey={'found' if self._sesskey else 'missing'}")
                     return True
-                if any(w in final_url for w in ("dashboard", "client", "agent", "sms")):
-                    self._logged_in = True
-                    await self._fetch_sesskey(sess)
-                    return True
 
-                logger.error(f"Login failed | url={final_url} | status={resp.status}")
+                logger.error(f"Login failed | status={resp.status} | location={location}")
                 return False
 
         except Exception as e:
@@ -861,10 +884,28 @@ class PanelSession:
                 timeout=aiohttp.ClientTimeout(total=20),
             ) as resp:
                 html = await resp.text(errors="replace")
-                m = re.search(r'sesskey["\s:=]+([A-Za-z0-9+/=_\-]{10,})', html)
-                if m:
-                    self._sesskey = m.group(1)
-                    logger.info(f"sesskey extracted: {self._sesskey[:12]}...")
+                # try multiple patterns — the panel embeds it in JS in various ways
+                patterns = [
+                    r'["\']sesskey["\']\s*[,:=]\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'sesskey\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'var\s+sesskey\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'data\[.sesskey.\]\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'sesskey["\s:=]+([A-Za-z0-9+/=_\-]{10,})',
+                ]
+                for pat in patterns:
+                    m = re.search(pat, html)
+                    if m:
+                        self._sesskey = m.group(1)
+                        logger.info(f"sesskey extracted: {self._sesskey[:12]}...")
+                        return
+                # fallback: try hidden input field
+                soup = BeautifulSoup(html, "html.parser")
+                inp  = soup.find("input", {"name": "sesskey"})
+                if inp:
+                    self._sesskey = inp.get("value", "")
+                    logger.info(f"sesskey from input: {self._sesskey[:12]}...")
+                else:
+                    logger.warning("sesskey not found — CDR requests will proceed without it")
         except Exception as e:
             logger.warning(f"sesskey fetch warning: {e}")
 
@@ -898,43 +939,65 @@ class PanelSession:
             now  = datetime.now()
 
             params = {
-                "fdate1":          now.strftime("%Y-%m-%d 00:00:00"),
-                "fdate2":          now.strftime("%Y-%m-%d 23:59:59"),
-                "frange":          "",
-                "fnum":            "",
-                "fcli":            "",
-                "fgdate":          "",
-                "fgmonth":         "",
-                "fgrange":         "",
-                "fgnumber":        "",
-                "fgcli":           "",
-                "fg":              "0",
-                "sesskey":         self._sesskey,
-                "sEcho":           "1",
-                "iColumns":        "7",
-                "sColumns":        ",,,,,,",
-                "iDisplayStart":   "0",
-                "iDisplayLength":  "100",
-                "mDataProp_0":     "0",
-                "mDataProp_1":     "1",
-                "mDataProp_2":     "2",
-                "mDataProp_3":     "3",
-                "mDataProp_4":     "4",
-                "mDataProp_5":     "5",
-                "mDataProp_6":     "6",
-                "sSearch":         "",
-                "bRegex":          "false",
-                "iSortCol_0":      "0",
-                "sSortDir_0":      "desc",
-                "iSortingCols":    "1",
-                "_":               str(int(time.time() * 1000)),
+                "fdate1":         now.strftime("%Y-%m-%d 00:00:00"),
+                "fdate2":         now.strftime("%Y-%m-%d 23:59:59"),
+                "frange":         "",
+                "fnum":           "",
+                "fcli":           "",
+                "fgdate":         "",
+                "fgmonth":        "",
+                "fgrange":        "",
+                "fgnumber":       "",
+                "fgcli":          "",
+                "fg":             "0",
+                "sesskey":        self._sesskey,
+                "sEcho":          "1",
+                "iColumns":       "7",
+                "sColumns":       ",,,,,,",
+                "iDisplayStart":  "0",
+                "iDisplayLength": "-1",
+                "mDataProp_0":    "0",
+                "sSearch_0":      "",
+                "bRegex_0":       "false",
+                "bSearchable_0":  "true",
+                "bSortable_0":    "true",
+                "mDataProp_1":    "1",
+                "sSearch_1":      "",
+                "bRegex_1":       "false",
+                "bSearchable_1":  "true",
+                "bSortable_1":    "true",
+                "mDataProp_2":    "2",
+                "sSearch_2":      "",
+                "bRegex_2":       "false",
+                "bSearchable_2":  "true",
+                "bSortable_2":    "true",
+                "mDataProp_3":    "3",
+                "sSearch_3":      "",
+                "bRegex_3":       "false",
+                "bSearchable_3":  "true",
+                "bSortable_3":    "true",
+                "mDataProp_4":    "4",
+                "sSearch_4":      "",
+                "bRegex_4":       "false",
+                "bSearchable_4":  "true",
+                "bSortable_4":    "true",
+                "mDataProp_5":    "5",
+                "sSearch_5":      "",
+                "bRegex_5":       "false",
+                "bSearchable_5":  "true",
+                "bSortable_5":    "true",
+                "mDataProp_6":    "6",
+                "sSearch_6":      "",
+                "bRegex_6":       "false",
+                "bSearchable_6":  "true",
+                "bSortable_6":    "true",
+                "sSearch":        "",
+                "bRegex":         "false",
+                "iSortCol_0":     "0",
+                "sSortDir_0":     "desc",
+                "iSortingCols":   "1",
+                "_":              str(int(time.time() * 1000)),
             }
-            # add per-column search/sort params
-            for i in range(7):
-                params[f"sSearch_{i}"]     = ""
-                params[f"bRegex_{i}"]      = "false"
-                params[f"bSearchable_{i}"] = "true"
-                params[f"bSortable_{i}"]   = "true"
 
             async with sess.get(
                 PANEL_DATA_URL,
@@ -998,14 +1061,15 @@ def format_otp_message(row, otp):
     service            = (row.get("service") or "Unknown").strip()
 
     text = (
-        f"<b>OTP Received</b>\n"
+        f"ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ\n"
         f"┌\n"
-        f"├ <b>Number</b>   : <code>{masked}</code>\n"
-        f"├ <b>Country</b>  : {flag} {country_name}\n"
-        f"├ <b>Service</b>  : {service}\n"
-        f"├ <b>OTP</b>      : <code>{otp}</code>\n"
-        f"├ <b>SMS</b>      : {sms_txt}\n"
-        f"└ <b>Time</b>     : {row.get('date', '—')}\n"
+        f"├ ɴᴜᴍʙᴇʀ   : <code>{masked}</code>\n"
+        f"├ ᴄᴏᴜɴᴛʀʜ  : {flag} {country_name}\n"
+        f"├ sᴇʀᴠɪᴄᴇ  : {service}\n"
+        f"├ ᴏᴛᴘ      : <code>{otp}</code>\n"
+        f"├ sᴍs      :\n"
+        f"<blockquote>{sms_txt}</blockquote>\n"
+        f"└ ᴛɪᴍᴇ     : {row.get('date', '—')}\n"
     )
     return text, otp_buttons()
 
@@ -1013,6 +1077,9 @@ def format_otp_message(row, otp):
 # ── WORKER LOOP ───────────────────────────────────────────────────────────────
 async def sms_worker(app):
     global maintenance
+    if worker_info["running"]:
+        logger.warning("Worker already running — duplicate instance detected, exiting")
+        return
     worker_info["running"] = True
     keepalive_timer        = 0
     last_reset_day         = datetime.now().day
@@ -1032,8 +1099,8 @@ async def sms_worker(app):
                     worker_info["errors"] += 1
                     await notify_admins(
                         app,
-                        f"<b>Panel Login Failed</b>\n"
-                        f"Attempt #{worker_info['errors']}. Retrying in 30s...",
+                        f"ᴘᴀɴᴇʟ ʟᴏɢɪɴ ғᴀɪʟᴇᴅ\n"
+                        f"ᴀᴛᴛᴇᴍᴘᴛ #{worker_info['errors']}. ʀᴇᴛʀʏɪɴɢ ɪɴ 30s...",
                     )
                     await asyncio.sleep(30)
                     continue
@@ -1042,8 +1109,18 @@ async def sms_worker(app):
                 worker_info["errors"]     = 0
                 await notify_admins(
                     app,
-                    f"<b>Panel Login Successful</b>\n{BOT_NAME} is live and monitoring.",
+                    f"ᴘᴀɴᴇʟ ʟᴏɢɪɴ sᴜᴄᴄᴇssғᴜʟ\n{BOT_NAME} ɪs ʟɪᴠᴇ ᴀɴᴅ ᴍᴏɴɪᴛᴏʀɪɴɢ.",
                 )
+                # silent startup fetch — pre-cache all existing rows so we
+                # never re-send OTPs that arrived before the bot started
+                _startup_rows, _ = await panel.fetch_cdr()
+                if _startup_rows:
+                    import hashlib as _hl
+                    for _r in _startup_rows:
+                        _h = _hl.md5(f"{str(_r['date']).strip()}{str(_r['number']).strip()}{str(_r['sms']).strip()}".encode()).hexdigest()
+                        otp_cache.add(_h)
+                    logger.info(f"Startup cache: {len(_startup_rows)} existing rows pre-cached")
+                continue  # skip sending on first loop — only new OTPs from next poll
 
             keepalive_timer += POLL_INTERVAL
             if keepalive_timer >= KEEPALIVE_INTERVAL:
@@ -1051,7 +1128,7 @@ async def sms_worker(app):
                 if not alive:
                     panel._logged_in         = False
                     worker_info["logged_in"] = False
-                    await notify_admins(app, "<b>Session Expired</b> — Re-authenticating...")
+                    await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
                 keepalive_timer = 0
 
             rows, err = await panel.fetch_cdr()
@@ -1059,7 +1136,7 @@ async def sms_worker(app):
             if err == "session_expired":
                 panel._logged_in         = False
                 worker_info["logged_in"] = False
-                await notify_admins(app, "<b>Session Expired</b> — Re-authenticating...")
+                await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
                 continue
 
             if err:
@@ -1083,7 +1160,7 @@ async def sms_worker(app):
                         if not otp:
                             continue
 
-                        h = hashlib.md5(f"{date}{number}{sms}".encode()).hexdigest()
+                        h = hashlib.md5(f"{str(date).strip()}{str(number).strip()}{str(sms).strip()}".encode()).hexdigest()
 
                         if h in otp_cache:
                             continue
@@ -1128,6 +1205,13 @@ async def sms_worker(app):
                         logger.error(f"Row error: {row_err}")
                         continue
 
+            # trim otp_cache to prevent unbounded memory growth
+            if len(otp_cache) > 50000:
+                otp_cache.clear()
+                rows = db.fetchall("SELECT hash FROM otp_history ORDER BY id DESC LIMIT 30000")
+                for r in rows:
+                    otp_cache.add(r["hash"])
+
             await asyncio.sleep(POLL_INTERVAL)
 
         except asyncio.CancelledError:
@@ -1138,7 +1222,7 @@ async def sms_worker(app):
             if worker_info["errors"] % 5 == 0:
                 await notify_admins(
                     app,
-                    f"<b>Worker Error</b>\n<code>{e}</code>\nAuto-recovering...",
+                    f"ᴡᴏʀᴋᴇʀ ᴇʀʀᴏʀ\n{e}\nᴀᴜᴛᴏ-ʀᴇᴄᴏᴠᴇʀɪɴɢ...",
                 )
             await asyncio.sleep(15)
 
@@ -1413,10 +1497,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )["c"]
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
+            [InlineKeyboardButton("ᴄʜᴀɴɢᴇ ɴᴜᴍʙᴇʀ", callback_data=f"chgn__{country}__{service}__{num_id}")],
             [
-                InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
-                InlineKeyboardButton("Back", callback_data=f"gns__{service}"),
+                InlineKeyboardButton("ᴏᴛᴘ ɢʀᴏᴜᴘ", url=OTP_GROUP_LINK),
+                InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f"gns__{service}"),
             ],
         ])
 
@@ -1491,10 +1575,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )["c"]
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
+            [InlineKeyboardButton("ᴄʜᴀɴɢᴇ ɴᴜᴍʙᴇʀ", callback_data=f"chgn__{country}__{service}__{num_id}")],
             [
-                InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
-                InlineKeyboardButton("Back", callback_data=f"gns__{service}"),
+                InlineKeyboardButton("ᴏᴛᴘ ɢʀᴏᴜᴘ", url=OTP_GROUP_LINK),
+                InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f"gns__{service}"),
             ],
         ])
 
@@ -1585,8 +1669,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"┃\n"
             f"╰━━━━━━━━━━━⊷",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Force Re-Login", callback_data="adm_relogin")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ғᴏʀᴄᴇ ʀᴇ-ʟᴏɢɪɴ", callback_data="adm_relogin")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1644,8 +1728,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query,
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Export CSV", callback_data="adm_export_traffic")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ᴇxᴘᴏʀᴛ ᴄsᴠ", callback_data="adm_export_traffic")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1695,11 +1779,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("Add Numbers", callback_data="adm_add_numbers"),
-                    InlineKeyboardButton("Remove Slot", callback_data="adm_remove_slot"),
+                    InlineKeyboardButton("ᴀᴅᴅ ɴᴜᴍʙᴇʀs", callback_data="adm_add_numbers"),
+                    InlineKeyboardButton("ʀᴇᴍᴏᴠᴇ sʟᴏᴛ", callback_data="adm_remove_slot"),
                 ],
-                [InlineKeyboardButton("Export", callback_data="adm_export_numbers")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ᴇxᴘᴏʀᴛ", callback_data="adm_export_numbers")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1726,7 +1810,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = f"{r['country']} [{r['service']}] ({r['cnt']})"
             cb    = f"adm_delslot__{r['country']}__{r['service']}"
             buttons.append([InlineKeyboardButton(label, callback_data=cb)])
-        buttons.append([InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")])
+        buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")])
         await edit_with_banner(
             query,
             "Select slot to delete:",
@@ -1745,8 +1829,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query,
             f"Deleted <b>{deleted}</b> numbers from <b>{country} [{service}]</b>.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -1916,6 +2000,12 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             new_admin_id = int(text.strip())
             if new_admin_id not in ADMIN_IDS:
                 ADMIN_IDS.append(new_admin_id)
+                # persist to DB so it survives restarts
+                existing = db.get_setting("extra_admins")
+                ids = [i for i in existing.split(",") if i.strip()] if existing else []
+                if str(new_admin_id) not in ids:
+                    ids.append(str(new_admin_id))
+                db.set_setting("extra_admins", ",".join(ids))
             USER_STATE.pop(user.id, None)
             await send_with_banner(
                 context.bot, update.effective_chat.id,
@@ -1992,10 +2082,10 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"Country: <b>{country}</b>\n\nHow do you want to add numbers?",
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("Upload File", callback_data="adm_addmethod_file"),
-                    InlineKeyboardButton("Type Numbers", callback_data="adm_addmethod_type"),
+                    InlineKeyboardButton("ᴜᴘʟᴏᴀᴅ ғɪʟᴇ", callback_data="adm_addmethod_file"),
+                    InlineKeyboardButton("ᴛʏᴘᴇ ɴᴜᴍʙᴇʀs", callback_data="adm_addmethod_type"),
                 ],
-                [InlineKeyboardButton("Cancel", callback_data="adm_cancel_state")],
+                [InlineKeyboardButton("ᴄᴀɴᴄᴇʟ", callback_data="adm_cancel_state")],
             ]),
         )
         return
@@ -2048,8 +2138,8 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.bot, update.effective_chat.id,
             f"Done!\nCountry: {country}\nService: {service}\nAdded: {count}\nDupes: {dupes}",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
             ]),
         )
         return
@@ -2097,16 +2187,16 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=result_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                    [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
                 ]),
             )
         except Exception:
             await send_with_banner(
                 context.bot, update.effective_chat.id, result_text,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
-                    [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ɴᴜᴍʙᴇʀs", callback_data="adm_numbers")],
+                    [InlineKeyboardButton("ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ", callback_data="adm_back")],
                 ]),
             )
     except Exception as e:
@@ -2138,6 +2228,17 @@ async def post_init(application):
     saved_maint = db.get_setting("maintenance")
     if saved_maint == "1":
         maintenance = True
+
+    # restore persisted extra admins
+    extra = db.get_setting("extra_admins")
+    if extra:
+        for eid in extra.split(","):
+            eid = eid.strip()
+            if eid.isdigit():
+                aid = int(eid)
+                if aid not in ADMIN_IDS:
+                    ADMIN_IDS.append(aid)
+    logger.info(f"Admin IDs loaded: {ADMIN_IDS}")
 
     rows = db.fetchall("SELECT hash FROM otp_history ORDER BY id DESC LIMIT 30000")
     for r in rows:
