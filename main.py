@@ -115,7 +115,7 @@ BANNER_URL          = "https://files.catbox.moe/gxtkgb.jpg"
 DB_FILE             = "bot.db"
 PORT                = int(os.environ.get("PORT", 8080))
 POLL_INTERVAL       = 5          # faster: every 5s
-KEEPALIVE_INTERVAL  = 60
+KEEPALIVE_INTERVAL  = 300
 FLOOD_LIMIT         = 5
 FLOOD_WINDOW        = 10
 NUMBER_COOLDOWN     = 30
@@ -1071,6 +1071,9 @@ def format_otp_message(row, otp):
 # ── WORKER LOOP ───────────────────────────────────────────────────────────────
 async def sms_worker(app):
     global maintenance
+    if worker_info["running"]:
+        logger.warning("Worker already running — duplicate instance detected, exiting")
+        return
     worker_info["running"] = True
     keepalive_timer        = 0
     last_reset_day         = datetime.now().day
@@ -1090,8 +1093,8 @@ async def sms_worker(app):
                     worker_info["errors"] += 1
                     await notify_admins(
                         app,
-                        f"<b>Panel Login Failed</b>\n"
-                        f"Attempt #{worker_info['errors']}. Retrying in 30s...",
+                        f"ᴘᴀɴᴇʟ ʟᴏɢɪɴ ғᴀɪʟᴇᴅ\n"
+                        f"ᴀᴛᴛᴇᴍᴘᴛ #{worker_info['errors']}. ʀᴇᴛʀʏɪɴɢ ɪɴ 30s...",
                     )
                     await asyncio.sleep(30)
                     continue
@@ -1100,7 +1103,7 @@ async def sms_worker(app):
                 worker_info["errors"]     = 0
                 await notify_admins(
                     app,
-                    f"<b>Panel Login Successful</b>\n{BOT_NAME} is live and monitoring.",
+                    f"ᴘᴀɴᴇʟ ʟᴏɢɪɴ sᴜᴄᴄᴇssғᴜʟ\n{BOT_NAME} ɪs ʟɪᴠᴇ ᴀɴᴅ ᴍᴏɴɪᴛᴏʀɪɴɢ.",
                 )
                 # silent startup fetch — pre-cache all existing rows so we
                 # never re-send OTPs that arrived before the bot started
@@ -1119,7 +1122,7 @@ async def sms_worker(app):
                 if not alive:
                     panel._logged_in         = False
                     worker_info["logged_in"] = False
-                    await notify_admins(app, "<b>Session Expired</b> — Re-authenticating...")
+                    await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
                 keepalive_timer = 0
 
             rows, err = await panel.fetch_cdr()
@@ -1127,7 +1130,7 @@ async def sms_worker(app):
             if err == "session_expired":
                 panel._logged_in         = False
                 worker_info["logged_in"] = False
-                await notify_admins(app, "<b>Session Expired</b> — Re-authenticating...")
+                await notify_admins(app, "sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ — ʀᴇ-ᴀᴜᴛʜᴇɴᴛɪᴄᴀᴛɪɴɢ...")
                 continue
 
             if err:
@@ -1213,7 +1216,7 @@ async def sms_worker(app):
             if worker_info["errors"] % 5 == 0:
                 await notify_admins(
                     app,
-                    f"<b>Worker Error</b>\n<code>{e}</code>\nAuto-recovering...",
+                    f"ᴡᴏʀᴋᴇʀ ᴇʀʀᴏʀ\n{e}\nᴀᴜᴛᴏ-ʀᴇᴄᴏᴠᴇʀɪɴɢ...",
                 )
             await asyncio.sleep(15)
 
