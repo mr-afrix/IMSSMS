@@ -790,10 +790,7 @@ class PanelSession:
 
     async def login(self):
         try:
-            if self._session and not self._session.closed:
-                await self._session.close()
-                self._session = None
-
+            # Keep the same session/cookie jar across attempts
             sess = await self._get_session()
 
             # fetch login page for etkk token + captcha
@@ -863,15 +860,26 @@ class PanelSession:
 
                 # Success = 302 redirect away from login page
                 if resp.status == 302 and "login" not in location.lower():
-                    # Follow the redirect manually so the session cookie is set
-                    redirect_url = location if location.startswith("http") else f"{PANEL_BASE}/{location.lstrip('./')}"
+                    # Resolve the redirect URL relative to the signin URL
+                    if location.startswith("http"):
+                        redirect_url = location
+                    elif location.startswith("/"):
+                        redirect_url = f"{PANEL_BASE}{location}"
+                    else:
+                        # relative like "./" — resolve to base
+                        redirect_url = PANEL_BASE + "/"
+                    logger.info(f"Following post-login redirect to: {redirect_url}")
                     try:
                         async with sess.get(
                             redirect_url,
                             allow_redirects=True,
                             timeout=aiohttp.ClientTimeout(total=20),
                         ) as redir_resp:
-                            logger.info(f"Post-login redirect: status={redir_resp.status}, url={redir_resp.url}")
+                            final = str(redir_resp.url)
+                            logger.info(f"Post-login redirect: status={redir_resp.status}, url={final}")
+                            if "login" in final.lower():
+                                logger.error("Session cookie not accepted — panel rejected session after login")
+                                return False
                     except Exception as e:
                         logger.warning(f"Post-login redirect warning: {e}")
 
