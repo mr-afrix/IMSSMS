@@ -84,6 +84,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+# ── CONFIG ──────────────────────────────────────────────────────────────────
 BOT_TOKEN           = "8313925262:AAFBgY13zTdARtEuWuIdFp8-rKac6DopNjU"
 BOT_NAME            = "ᴍʀ.ᴀғʀɪx"
 BOT_USERNAME        = "mrafrix_bot"
@@ -95,6 +96,7 @@ PANEL_LOGIN_PAGE    = f"{PANEL_BASE}/login"
 PANEL_SIGNIN_URL    = f"{PANEL_BASE}/signin"
 PANEL_CDR_URL       = f"{PANEL_BASE}/client/SMSCDRStats"
 PANEL_DASHBOARD_URL = f"{PANEL_BASE}/client/SMSDashboard"
+PANEL_DATA_URL      = f"{PANEL_BASE}/client/res/data_smscdr.php"
 PANEL_USERNAME      = "Techbangla"
 PANEL_PASSWORD      = "Techbangla"
 
@@ -102,16 +104,18 @@ MAIN_CHANNEL        = "@sage_xd"
 MAIN_CHANNEL_LINK   = "https://t.me/sage_xd"
 BACKUP_CHANNEL      = "@mr_afrix"
 BACKUP_CHANNEL_LINK = "https://t.me/mr_afrix"
+THIRD_CHANNEL       = "@oxellabs"
+THIRD_CHANNEL_LINK  = "https://t.me/oxellabs"
 OTP_GROUP_LINK      = "https://t.me/afrixotpgc"
 OTP_GROUP_ID        = -1003053441379
-FORCE_CHANNELS      = ["@sage_xd", "@mr_afrix"]
+FORCE_CHANNELS      = ["@sage_xd", "@mr_afrix", "@oxellabs"]
 
 BANNER_URL          = "https://files.catbox.moe/apvmgp.jpg"
 
 DB_FILE             = "bot.db"
 PORT                = int(os.environ.get("PORT", 8080))
-POLL_INTERVAL       = 8
-KEEPALIVE_INTERVAL  = 90
+POLL_INTERVAL       = 5          # faster: every 5s
+KEEPALIVE_INTERVAL  = 60
 FLOOD_LIMIT         = 5
 FLOOD_WINDOW        = 10
 NUMBER_COOLDOWN     = 30
@@ -126,11 +130,11 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
-USER_STATE      = {}
-flood_data      = {}
-otp_cache       = set()
-maintenance     = False
-ADMIN_IDS       = list(BASE_ADMIN_IDS)
+USER_STATE  = {}
+flood_data  = {}
+otp_cache   = set()
+maintenance = False
+ADMIN_IDS   = list(BASE_ADMIN_IDS)
 
 worker_info = {
     "running":    False,
@@ -216,6 +220,7 @@ DEFAULT_SERVICES = [
 ]
 
 
+# ── DATABASE ─────────────────────────────────────────────────────────────────
 class Database:
     def __init__(self, path):
         self._path = path
@@ -265,7 +270,6 @@ class Database:
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     range_name  TEXT,
                     number      TEXT,
-                    cli         TEXT,
                     sms         TEXT,
                     otp         TEXT,
                     service     TEXT,
@@ -307,6 +311,20 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_nums_service ON numbers(service);
             """)
             self._conn.commit()
+            # safe migrations for existing DBs with old schemas
+            migrations = [
+                "ALTER TABLE traffic ADD COLUMN range_name TEXT",
+                "ALTER TABLE traffic ADD COLUMN service TEXT",
+                "ALTER TABLE otp_history ADD COLUMN range_name TEXT",
+                "ALTER TABLE numbers ADD COLUMN use_date TEXT DEFAULT NULL",
+                "ALTER TABLE numbers ADD COLUMN used_by INTEGER DEFAULT NULL",
+            ]
+            for sql in migrations:
+                try:
+                    self._conn.execute(sql)
+                    self._conn.commit()
+                except Exception:
+                    pass  # column already exists — fine
 
     def get_setting(self, key, default=""):
         row = self.fetchone("SELECT value FROM settings WHERE key=?", (key,))
@@ -321,6 +339,7 @@ class Database:
 db = Database(DB_FILE)
 
 
+# ── HELPERS ──────────────────────────────────────────────────────────────────
 def get_country_info(number):
     clean = re.sub(r"\D", "", str(number))
     for length in (3, 2, 1):
@@ -331,18 +350,13 @@ def get_country_info(number):
     return "Unknown", "🌐"
 
 
-def get_country_display(number):
-    name, flag = get_country_info(number)
-    return f"{flag} {name}"
-
-
 def mask_number(number):
     clean = re.sub(r"\D", "", str(number))
     if len(clean) >= 9:
-        return f"+{clean[:5]}XXXX{clean[-4:]}"
+        return f"+{clean[:5]}····{clean[-3:]}"
     if len(clean) >= 6:
-        return f"+{clean[:3]}XXX{clean[-3:]}"
-    return f"+{clean}XXXX"
+        return f"+{clean[:3]}···{clean[-3:]}"
+    return f"+{clean}···"
 
 
 def extract_otp(sms):
@@ -357,37 +371,6 @@ def extract_otp(sms):
         if m:
             return m.group().strip()
     return None
-
-
-def detect_service(cli, sms):
-    combined = f"{cli} {sms}".lower()
-    if "whatsapp" in combined:
-        return "WhatsApp"
-    if "telegram" in combined:
-        return "Telegram"
-    if "instagram" in combined:
-        return "Instagram"
-    if "facebook" in combined or "fb" in combined:
-        return "Facebook"
-    if "google" in combined:
-        return "Google"
-    if "tiktok" in combined:
-        return "TikTok"
-    if "twitter" in combined or "x.com" in combined:
-        return "Twitter/X"
-    if "snapchat" in combined:
-        return "Snapchat"
-    if "discord" in combined:
-        return "Discord"
-    if "binance" in combined:
-        return "Binance"
-    if "bybit" in combined:
-        return "Bybit"
-    if "okx" in combined:
-        return "OKX"
-    if "coinbase" in combined:
-        return "Coinbase"
-    return cli.strip() if cli.strip() else "Unknown"
 
 
 def is_admin(user_id):
@@ -405,12 +388,10 @@ def is_flooded(user_id):
 
 
 def register_user(user):
-    existing = db.fetchone("SELECT user_id FROM users WHERE user_id=?", (user.id,))
-    if not existing:
-        db.execute(
-            "INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
-            (user.id, user.username or "", user.first_name or ""),
-        )
+    db.execute(
+        "INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
+        (user.id, user.username or "", user.first_name or ""),
+    )
     db.execute(
         "UPDATE users SET username=?, first_name=? WHERE user_id=?",
         (user.username or "", user.first_name or "", user.id),
@@ -474,26 +455,30 @@ def extract_numbers_from_content(content, filename):
     return list(nums)
 
 
+# ── MARKUPS ───────────────────────────────────────────────────────────────────
 def join_markup():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_LINK),
-            InlineKeyboardButton("💬 OTP Group", url=OTP_GROUP_LINK),
+            InlineKeyboardButton("SAGE", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("MR.AFRIX", url=BACKUP_CHANNEL_LINK),
         ],
-        [InlineKeyboardButton("📡 Backup Channel", url=BACKUP_CHANNEL_LINK)],
-        [InlineKeyboardButton("✅ I've Joined — Verify", callback_data="check_join")],
+        [
+            InlineKeyboardButton("OxelLabs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
+        ],
+        [InlineKeyboardButton("I've Joined — Verify", callback_data="check_join")],
     ])
 
 
 def main_menu_reply(user_id=None):
     if user_id and is_admin(user_id):
         return ReplyKeyboardMarkup(
-            [[KeyboardButton("≡ Menu"), KeyboardButton("⚙️ Admin")]],
+            [[KeyboardButton("Menu"), KeyboardButton("Admin")]],
             resize_keyboard=True,
             one_time_keyboard=False,
         )
     return ReplyKeyboardMarkup(
-        [[KeyboardButton("≡ Menu")]],
+        [[KeyboardButton("Menu")]],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
@@ -503,7 +488,7 @@ def main_menu_inline(user_id=None):
     buttons = [
         [
             InlineKeyboardButton("📡 Live OTPs", url=OTP_GROUP_LINK),
-            InlineKeyboardButton("📢 Channel", url=MAIN_CHANNEL_LINK),
+            InlineKeyboardButton("📢 SAGE", url=MAIN_CHANNEL_LINK),
         ],
         [
             InlineKeyboardButton("🌍 Get Number", callback_data="menu_get_number"),
@@ -513,6 +498,9 @@ def main_menu_inline(user_id=None):
             InlineKeyboardButton("📊 Traffic", callback_data="menu_traffic"),
             InlineKeyboardButton("ℹ️ About", callback_data="menu_about"),
         ],
+        [
+            InlineKeyboardButton("🔱 OxelLabs", url=THIRD_CHANNEL_LINK),
+        ],
     ]
     if user_id and is_admin(user_id):
         buttons.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="menu_admin")])
@@ -520,30 +508,37 @@ def main_menu_inline(user_id=None):
 
 
 def otp_buttons():
+    # Layout matches screenshot: [📢 Channel | 📡 MR.AFRIX] / [OxelLabs | 🤖 Bot]
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📢 Channel", url=MAIN_CHANNEL_LINK),
-            InlineKeyboardButton("📡 Backup", url=BACKUP_CHANNEL_LINK),
+            InlineKeyboardButton("📡 MR.AFRIX", url=BACKUP_CHANNEL_LINK),
         ],
-        [InlineKeyboardButton(f"🤖 {BOT_NAME}", url=BOT_LINK)],
+        [
+            InlineKeyboardButton("🔱 OxelLabs", url=THIRD_CHANNEL_LINK),
+            InlineKeyboardButton("🤖 Bot", url=BOT_LINK),
+        ],
     ])
 
 
 def admin_markup():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"),
-            InlineKeyboardButton("🌍 Add Numbers", callback_data="adm_numbers"),
+            InlineKeyboardButton("Broadcast", callback_data="adm_broadcast"),
+            InlineKeyboardButton("Add Numbers", callback_data="adm_numbers"),
         ],
         [
-            InlineKeyboardButton("📊 Stats", callback_data="adm_stats"),
-            InlineKeyboardButton("🔄 Worker", callback_data="adm_worker"),
+            InlineKeyboardButton("Stats", callback_data="adm_stats"),
+            InlineKeyboardButton("Worker", callback_data="adm_worker"),
         ],
         [
-            InlineKeyboardButton("🔧 Maintenance", callback_data="adm_toggle_maint"),
-            InlineKeyboardButton("📋 Traffic Log", callback_data="adm_traffic"),
+            InlineKeyboardButton("Maintenance", callback_data="adm_toggle_maint"),
+            InlineKeyboardButton("Traffic Log", callback_data="adm_traffic"),
         ],
-        [InlineKeyboardButton("⬅️ Back to Menu", callback_data="menu_back")],
+        [
+            InlineKeyboardButton("Add Admin", callback_data="adm_add_admin"),
+            InlineKeyboardButton("Back", callback_data="menu_back"),
+        ],
     ])
 
 
@@ -557,18 +552,18 @@ def admin_text():
     )["c"]
     total_nums = db.fetchone("SELECT COUNT(*) AS c FROM numbers")["c"]
     avail_nums = db.fetchone("SELECT COUNT(*) AS c FROM numbers WHERE is_used=0")["c"]
-    status = "🟢 Online" if worker_info["logged_in"] else "🔴 Offline"
-    maint  = "🔧 ON" if maintenance else "✅ OFF"
+    status = "Online" if worker_info["logged_in"] else "Offline"
+    maint  = "ON" if maintenance else "OFF"
     return (
-        f"╭─⟦ 𝐀𝐃𝐌𝐈𝐍 ⟧─⊷\n"
+        f"╭─⟦ <b>ADMIN</b> ⟧─⊷\n"
         f"┃\n"
-        f"┃ ⦿ 𝐔𝐒𝐄𝐑𝐒    : {total_users}\n"
-        f"┃ ⦿ 𝐎𝐓𝐏𝐒     : {total_otps}\n"
-        f"┃ ⦿ 𝐓𝐎𝐃𝐀𝐘    : {today_otps}\n"
-        f"┃ ⦿ 𝐍𝐔𝐌𝐁𝐄𝐑𝐒  : {avail_nums} free / {total_nums}\n"
-        f"┃ ⦿ 𝐖𝐎𝐑𝐊𝐄𝐑   : {status}\n"
-        f"┃ ⦿ 𝐋𝐀𝐒𝐓 𝐎𝐓𝐏 : {worker_info['last_otp']}\n"
-        f"┃ ⦿ 𝐌𝐀𝐈𝐍𝐓    : {maint}\n"
+        f"┃ Users    : {total_users}\n"
+        f"┃ OTPs     : {total_otps}\n"
+        f"┃ Today    : {today_otps}\n"
+        f"┃ Numbers  : {avail_nums} free / {total_nums}\n"
+        f"┃ Worker   : {status}\n"
+        f"┃ Last OTP : {worker_info['last_otp']}\n"
+        f"┃ Maint    : {maint}\n"
         f"┃\n"
         f"╰━━━━━━━━━━━⊷"
     )
@@ -576,28 +571,21 @@ def admin_text():
 
 def back_to_menu():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⬅️ Back", callback_data="menu_back")]]
+        [[InlineKeyboardButton("Back", callback_data="menu_back")]]
     )
 
 
 def back_to_admin():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")]]
+        [[InlineKeyboardButton("Back to Admin", callback_data="adm_back")]]
     )
-
-
-def back_to_numbers():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Back to Numbers", callback_data="adm_numbers")],
-        [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
-    ])
 
 
 def cancel_state_markup(back_cb="adm_back"):
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("❌ Cancel", callback_data="adm_cancel_state"),
-            InlineKeyboardButton("⬅️ Back", callback_data=back_cb),
+            InlineKeyboardButton("Cancel", callback_data="adm_cancel_state"),
+            InlineKeyboardButton("Back", callback_data=back_cb),
         ]
     ])
 
@@ -619,7 +607,7 @@ def build_service_grid():
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("⬅️ Back", callback_data="menu_back")])
+    buttons.append([InlineKeyboardButton("Back", callback_data="menu_back")])
     return rows, InlineKeyboardMarkup(buttons)
 
 
@@ -642,7 +630,7 @@ def build_country_grid_for_service(service):
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("⬅️ Back to Services", callback_data="menu_get_number")])
+    buttons.append([InlineKeyboardButton("Back to Services", callback_data="menu_get_number")])
     return rows, InlineKeyboardMarkup(buttons)
 
 
@@ -656,11 +644,12 @@ def _service_picker_markup(mode="file"):
             row_buf = []
     if row_buf:
         buttons.append(row_buf)
-    buttons.append([InlineKeyboardButton("✏️ Custom Service", callback_data=f"adm_svc_custom__{mode}")])
-    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="adm_cancel_state")])
+    buttons.append([InlineKeyboardButton("Custom Service", callback_data=f"adm_svc_custom__{mode}")])
+    buttons.append([InlineKeyboardButton("Cancel", callback_data="adm_cancel_state")])
     return InlineKeyboardMarkup(buttons)
 
 
+# ── SEND HELPERS ──────────────────────────────────────────────────────────────
 async def send_with_banner(bot, chat_id, text, reply_markup=None, disable_web_page_preview=False):
     try:
         return await bot.send_photo(
@@ -725,15 +714,15 @@ async def notify_admins(app, text):
                 pass
 
 
+# ── SSL ───────────────────────────────────────────────────────────────────────
 def _make_ssl_context():
     try:
-        ctx = ssl.create_default_context(cafile=certifi.where())
-        return ctx
+        return ssl.create_default_context(cafile=certifi.where())
     except Exception:
-        ctx = ssl.create_default_context()
-        return ctx
+        return ssl.create_default_context()
 
 
+# ── PANEL SESSION ─────────────────────────────────────────────────────────────
 def solve_captcha(html):
     try:
         soup      = BeautifulSoup(html, "html.parser")
@@ -752,14 +741,10 @@ def solve_captcha(html):
             a  = int(m.group(1))
             op = m.group(2).strip()
             b  = int(m.group(3))
-            if op == "+":
-                return str(a + b)
-            if op == "-":
-                return str(a - b)
-            if op in ("*", "×", "x", "X"):
-                return str(a * b)
-            if op in ("÷", "/") and b != 0:
-                return str(a // b)
+            if op == "+":   return str(a + b)
+            if op == "-":   return str(a - b)
+            if op in ("*", "×", "x", "X"): return str(a * b)
+            if op in ("÷", "/") and b != 0: return str(a // b)
     except Exception as e:
         logger.error(f"Captcha solve error: {e}")
     return "0"
@@ -769,6 +754,7 @@ class PanelSession:
     def __init__(self):
         self._session   = None
         self._logged_in = False
+        self._sesskey   = ""
 
     async def _get_session(self):
         if self._session is None or self._session.closed:
@@ -783,8 +769,8 @@ class PanelSession:
                 connector=connector,
                 headers={
                     "User-Agent": (
-                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+                        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
                     ),
                     "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8,en;q=0.7",
                     "Accept": (
@@ -792,10 +778,7 @@ class PanelSession:
                         "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
                     ),
                     "Upgrade-Insecure-Requests": "1",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
+                    "X-Requested-With": "XMLHttpRequest",
                 },
                 timeout=aiohttp.ClientTimeout(total=60, connect=20),
                 cookie_jar=aiohttp.CookieJar(unsafe=True),
@@ -810,6 +793,7 @@ class PanelSession:
 
             sess = await self._get_session()
 
+            # fetch login page for etkk token + captcha
             login_html = ""
             try:
                 async with sess.get(
@@ -818,17 +802,15 @@ class PanelSession:
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
                     login_html = await resp.text(errors="replace")
-                    logger.info(f"Login page: status={resp.status}, url={resp.url}")
+                    logger.info(f"Login page: status={resp.status}")
             except Exception as e:
                 logger.error(f"Login page fetch error: {e}")
                 return False
 
             if not login_html:
-                logger.error("Empty login page")
                 return False
 
             soup = BeautifulSoup(login_html, "html.parser")
-
             etkk = ""
             etkk_inp = soup.find("input", {"name": "etkk"})
             if etkk_inp:
@@ -841,7 +823,7 @@ class PanelSession:
                     etkk = m.group(1)
 
             capt = solve_captcha(login_html)
-            logger.info(f"etkk={etkk[:10] if etkk else 'not found'}, capt={capt}")
+            logger.info(f"etkk={'found' if etkk else 'missing'}, capt={capt}")
 
             form_data = aiohttp.FormData()
             if etkk:
@@ -850,48 +832,76 @@ class PanelSession:
             form_data.add_field("password", PANEL_PASSWORD)
             form_data.add_field("capt", capt)
 
-            try:
-                async with sess.post(
-                    PANEL_SIGNIN_URL,
-                    data=form_data,
-                    headers={
-                        "Referer": PANEL_LOGIN_PAGE,
-                        "Origin": PANEL_BASE,
-                        "Sec-Fetch-Site": "same-origin",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-User": "?1",
-                        "Sec-Fetch-Dest": "document",
-                    },
-                    allow_redirects=True,
-                    max_redirects=10,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    final_url = str(resp.url).lower()
-                    body      = await resp.text(errors="replace")
-                    logger.info(f"Signin: status={resp.status}, url={final_url}, body_len={len(body)}")
+            async with sess.post(
+                PANEL_SIGNIN_URL,
+                data=form_data,
+                headers={
+                    "Referer": PANEL_LOGIN_PAGE,
+                    "Origin": PANEL_BASE,
+                    "Sec-Fetch-Site": "same-origin",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-User": "?1",
+                    "Sec-Fetch-Dest": "document",
+                },
+                allow_redirects=True,
+                max_redirects=10,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                final_url = str(resp.url).lower()
+                body      = await resp.text(errors="replace")
+                logger.info(f"Signin: status={resp.status}, url={final_url}")
 
-                    if "login" not in final_url and resp.status in (200, 302):
-                        self._logged_in = True
-                        logger.info(f"Panel login OK → {final_url}")
-                        return True
-                    if any(w in final_url for w in ("dashboard", "client", "agent", "sms")):
-                        self._logged_in = True
-                        logger.info(f"Panel login OK (redirect) → {final_url}")
-                        return True
-                    if resp.status == 200 and "login" not in final_url:
-                        self._logged_in = True
-                        return True
+                if "login" not in final_url and resp.status in (200, 302):
+                    self._logged_in = True
+                    # extract sesskey from CDR page
+                    await self._fetch_sesskey(sess)
+                    logger.info(f"Panel login OK -> sesskey={'found' if self._sesskey else 'missing'}")
+                    return True
+                if any(w in final_url for w in ("dashboard", "client", "agent", "sms")):
+                    self._logged_in = True
+                    await self._fetch_sesskey(sess)
+                    return True
 
-                    logger.error(f"Login failed | url={final_url} | status={resp.status}")
-                    return False
-
-            except Exception as e:
-                logger.error(f"Signin POST error: {e}")
+                logger.error(f"Login failed | url={final_url} | status={resp.status}")
                 return False
 
         except Exception as e:
             logger.error(f"Login exception: {type(e).__name__}: {e}")
             return False
+
+    async def _fetch_sesskey(self, sess):
+        """Hit the CDR stats page to grab the sesskey DataTables uses."""
+        try:
+            async with sess.get(
+                PANEL_CDR_URL,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                html = await resp.text(errors="replace")
+                # try multiple patterns — the panel embeds it in JS in various ways
+                patterns = [
+                    r'["\']sesskey["\']\s*[,:=]\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'sesskey\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'var\s+sesskey\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'data\[.sesskey.\]\s*=\s*["\']([A-Za-z0-9+/=_\-]{10,})["\']',
+                    r'sesskey["\s:=]+([A-Za-z0-9+/=_\-]{10,})',
+                ]
+                for pat in patterns:
+                    m = re.search(pat, html)
+                    if m:
+                        self._sesskey = m.group(1)
+                        logger.info(f"sesskey extracted: {self._sesskey[:12]}...")
+                        return
+                # fallback: try hidden input field
+                soup = BeautifulSoup(html, "html.parser")
+                inp  = soup.find("input", {"name": "sesskey"})
+                if inp:
+                    self._sesskey = inp.get("value", "")
+                    logger.info(f"sesskey from input: {self._sesskey[:12]}...")
+                else:
+                    logger.warning("sesskey not found — CDR requests will proceed without it")
+        except Exception as e:
+            logger.warning(f"sesskey fetch warning: {e}")
 
     async def keepalive(self):
         try:
@@ -906,23 +916,94 @@ class PanelSession:
                     self._logged_in = False
                     logger.warning("Keepalive: session expired")
                     return False
-                logger.info(f"Keepalive OK: {final_url}")
+                logger.info(f"Keepalive OK")
                 return True
         except Exception as e:
             logger.error(f"Keepalive error: {e}")
             return False
 
     async def fetch_cdr(self):
+        """
+        Fetch SMS CDR data from the DataTables JSON endpoint.
+        Returns (list_of_rows, error_string_or_None)
+        Each row dict: {date, range, number, service, sms}
+        """
         try:
             sess = await self._get_session()
-            now       = datetime.now()
-            date_from = now.strftime("%Y-%m-%d 00:00:00")
-            date_to   = now.strftime("%Y-%m-%d 23:59:59")
-            fdate1    = now.strftime("%Y-%m-%d%%2000:00")
-            fdate2    = now.strftime("%Y-%m-%d%%2023:59:59")
+            now  = datetime.now()
+
+            params = {
+                "fdate1":         now.strftime("%Y-%m-%d 00:00:00"),
+                "fdate2":         now.strftime("%Y-%m-%d 23:59:59"),
+                "frange":         "",
+                "fnum":           "",
+                "fcli":           "",
+                "fgdate":         "",
+                "fgmonth":        "",
+                "fgrange":        "",
+                "fgnumber":       "",
+                "fgcli":          "",
+                "fg":             "0",
+                "sesskey":        self._sesskey,
+                "sEcho":          "1",
+                "iColumns":       "7",
+                "sColumns":       ",,,,,,",
+                "iDisplayStart":  "0",
+                "iDisplayLength": "-1",
+                "mDataProp_0":    "0",
+                "sSearch_0":      "",
+                "bRegex_0":       "false",
+                "bSearchable_0":  "true",
+                "bSortable_0":    "true",
+                "mDataProp_1":    "1",
+                "sSearch_1":      "",
+                "bRegex_1":       "false",
+                "bSearchable_1":  "true",
+                "bSortable_1":    "true",
+                "mDataProp_2":    "2",
+                "sSearch_2":      "",
+                "bRegex_2":       "false",
+                "bSearchable_2":  "true",
+                "bSortable_2":    "true",
+                "mDataProp_3":    "3",
+                "sSearch_3":      "",
+                "bRegex_3":       "false",
+                "bSearchable_3":  "true",
+                "bSortable_3":    "true",
+                "mDataProp_4":    "4",
+                "sSearch_4":      "",
+                "bRegex_4":       "false",
+                "bSearchable_4":  "true",
+                "bSortable_4":    "true",
+                "mDataProp_5":    "5",
+                "sSearch_5":      "",
+                "bRegex_5":       "false",
+                "bSearchable_5":  "true",
+                "bSortable_5":    "true",
+                "mDataProp_6":    "6",
+                "sSearch_6":      "",
+                "bRegex_6":       "false",
+                "bSearchable_6":  "true",
+                "bSortable_6":    "true",
+                "sSearch":        "",
+                "bRegex":         "false",
+                "iSortCol_0":     "0",
+                "sSortDir_0":     "desc",
+                "iSortingCols":   "1",
+                "_":              str(int(time.time() * 1000)),
+            }
 
             async with sess.get(
-                PANEL_CDR_URL,
+                PANEL_DATA_URL,
+                params=params,
+                headers={
+                    "Referer":           PANEL_CDR_URL,
+                    "Accept":            "application/json, text/javascript, */*; q=0.01",
+                    "X-Requested-With":  "XMLHttpRequest",
+                    "Sec-Fetch-Dest":    "empty",
+                    "Sec-Fetch-Mode":    "cors",
+                    "Sec-Fetch-Site":    "same-origin",
+                },
                 allow_redirects=True,
                 timeout=aiohttp.ClientTimeout(total=40),
             ) as resp:
@@ -930,78 +1011,29 @@ class PanelSession:
                 if "login" in final_url:
                     self._logged_in = False
                     return None, "session_expired"
-                page_html = await resp.text(errors="replace")
 
-            soup = BeautifulSoup(page_html, "html.parser")
-            form = soup.find("form")
+                text = await resp.text(errors="replace")
 
-            if form:
-                form_data  = {}
-                action     = form.get("action") or PANEL_CDR_URL
-                method     = (form.get("method") or "get").lower()
-                if not action.startswith("http"):
-                    action = PANEL_BASE + "/" + action.lstrip("/")
+                # parse JSON
+                try:
+                    data = json.loads(text)
+                except Exception:
+                    logger.warning(f"CDR response not JSON, len={len(text)}")
+                    return None, "parse_error"
 
-                for inp in form.find_all(["input", "select", "textarea"]):
-                    name = inp.get("name")
-                    if not name:
+                aa = data.get("aaData", [])
+                rows = []
+                for row in aa:
+                    if len(row) < 5:
                         continue
-                    itype = (inp.get("type") or "text").lower()
-                    if itype in ("submit", "button", "reset", "image"):
-                        continue
-                    if itype == "checkbox" and not inp.get("checked"):
-                        continue
-                    val        = inp.get("value", "")
-                    name_lower = name.lower()
-                    if any(k in name_lower for k in ("from", "start", "begin", "date1", "dstart", "fdate1")):
-                        val = date_from
-                    elif any(k in name_lower for k in ("to", "end", "stop", "date2", "dend", "fdate2")):
-                        val = date_to
-                    form_data[name] = val
-
-                if method == "post":
-                    async with sess.post(
-                        action,
-                        data=form_data,
-                        headers={
-                            "Referer": PANEL_CDR_URL,
-                            "Origin": PANEL_BASE,
-                        },
-                        allow_redirects=True,
-                        timeout=aiohttp.ClientTimeout(total=40),
-                    ) as r2:
-                        if "login" in str(r2.url).lower():
-                            self._logged_in = False
-                            return None, "session_expired"
-                        return await r2.text(errors="replace"), None
-                else:
-                    async with sess.get(
-                        action,
-                        params=form_data,
-                        allow_redirects=True,
-                        timeout=aiohttp.ClientTimeout(total=40),
-                    ) as r2:
-                        if "login" in str(r2.url).lower():
-                            self._logged_in = False
-                            return None, "session_expired"
-                        return await r2.text(errors="replace"), None
-
-            ajax_url = f"{PANEL_BASE}/client/res/data_smscdr.php"
-            params   = {
-                "fdate1": now.strftime("%Y-%m-%d 00:00"),
-                "fdate2": now.strftime("%Y-%m-%d 23:59:59"),
-            }
-            async with sess.get(
-                ajax_url,
-                params=params,
-                headers={"Referer": PANEL_CDR_URL, "X-Requested-With": "XMLHttpRequest"},
-                allow_redirects=True,
-                timeout=aiohttp.ClientTimeout(total=40),
-            ) as r3:
-                if "login" in str(r3.url).lower():
-                    self._logged_in = False
-                    return None, "session_expired"
-                return await r3.text(errors="replace"), None
+                    rows.append({
+                        "date":    str(row[0]).strip(),
+                        "range":   str(row[1]).strip(),
+                        "number":  str(row[2]).strip(),
+                        "service": str(row[3]).strip(),
+                        "sms":     str(row[4]).strip(),
+                    })
+                return rows, None
 
         except Exception as e:
             logger.error(f"Fetch CDR error: {e}")
@@ -1015,82 +1047,27 @@ class PanelSession:
 panel = PanelSession()
 
 
-def parse_sms_rows(html):
-    rows = []
-    try:
-        soup   = BeautifulSoup(html, "html.parser")
-        tables = soup.find_all("table")
-        target = None
-        for t in tables:
-            ths      = t.find_all("th")
-            combined = " ".join(th.get_text(strip=True).lower() for th in ths)
-            if "sms" in combined or ("number" in combined and ("cli" in combined or "range" in combined)):
-                target = t
-                break
-        if not target and tables:
-            target = tables[0]
-        if not target:
-            return rows
-        header_row = target.find("tr")
-        if not header_row:
-            return rows
-        headers = [c.get_text(strip=True).lower() for c in header_row.find_all(["th", "td"])]
-        col = {}
-        for i, h in enumerate(headers):
-            if "date" in h and "date" not in col:
-                col["date"] = i
-            if "range" in h and "range" not in col:
-                col["range"] = i
-            if h == "number" and "number" not in col:
-                col["number"] = i
-            if h == "cli" and "cli" not in col:
-                col["cli"] = i
-            if h == "sms" and "sms" not in col:
-                col["sms"] = i
-
-        def safe_col(cells, key, fallback):
-            idx = col.get(key, fallback)
-            if idx < len(cells):
-                return cells[idx].get_text(strip=True)
-            return ""
-
-        for tr in target.find_all("tr")[1:]:
-            cells = tr.find_all("td")
-            if len(cells) < 3:
-                continue
-            row = {
-                "date":   safe_col(cells, "date",   0),
-                "range":  safe_col(cells, "range",  1),
-                "number": safe_col(cells, "number", 2),
-                "cli":    safe_col(cells, "cli",    3),
-                "sms":    safe_col(cells, "sms",    4),
-            }
-            if row["number"] or row["sms"]:
-                rows.append(row)
-    except Exception as e:
-        logger.error(f"Parse rows error: {e}")
-    return rows
-
-
-def format_otp_message(row, otp, service):
-    masked  = mask_number(row["number"])
-    country_name, country_flag = get_country_info(row["number"])
-    sms_txt = (row.get("sms") or "").strip()
+# ── OTP MESSAGE FORMAT ────────────────────────────────────────────────────────
+def format_otp_message(row, otp):
+    masked             = mask_number(row["number"])
+    country_name, flag = get_country_info(row["number"])
+    sms_txt            = (row.get("sms") or "").strip()
+    service            = (row.get("service") or "Unknown").strip()
 
     text = (
-        f"╭─⟦ <b>ᴍʀ.ᴀғʀɪx ᴏᴛᴘ</b> ⟧─⊷\n"
-        f"┃\n"
-        f"┃ ⦿ 𝐎𝐓𝐏     : <code>{otp}</code>\n"
-        f"┃ ⦿ 𝐒𝐄𝐑𝐕𝐈𝐂𝐄 : {service}\n"
-        f"┃ ⦿ 𝐂𝐎𝐔𝐍𝐓𝐑𝐘 : {country_flag} {country_name}\n"
-        f"┃ ⦿ 𝐍𝐔𝐌𝐁𝐄𝐑  : <code>{masked}</code>\n"
-        f"┃\n"
-        f"╰━━━━━━━━━━━⊷\n\n"
-        f"<blockquote>{sms_txt}</blockquote>"
+        f"<b>OTP Received</b>\n"
+        f"┌\n"
+        f"├ <b>Number</b>   : <code>{masked}</code>\n"
+        f"├ <b>Country</b>  : {flag} {country_name}\n"
+        f"├ <b>Service</b>  : {service}\n"
+        f"├ <b>OTP</b>      : <code>{otp}</code>\n"
+        f"├ <b>SMS</b>      : {sms_txt}\n"
+        f"└ <b>Time</b>     : {row.get('date', '—')}\n"
     )
     return text, otp_buttons()
 
 
+# ── WORKER LOOP ───────────────────────────────────────────────────────────────
 async def sms_worker(app):
     global maintenance
     worker_info["running"] = True
@@ -1112,7 +1089,7 @@ async def sms_worker(app):
                     worker_info["errors"] += 1
                     await notify_admins(
                         app,
-                        f"❌ <b>Panel Login Failed</b>\n"
+                        f"<b>Panel Login Failed</b>\n"
                         f"Attempt #{worker_info['errors']}. Retrying in 30s...",
                     )
                     await asyncio.sleep(30)
@@ -1122,8 +1099,7 @@ async def sms_worker(app):
                 worker_info["errors"]     = 0
                 await notify_admins(
                     app,
-                    f"✅ <b>Panel Login Successful</b>\n"
-                    f"{BOT_NAME} is live and monitoring.",
+                    f"<b>Panel Login Successful</b>\n{BOT_NAME} is live and monitoring.",
                 )
 
             keepalive_timer += POLL_INTERVAL
@@ -1132,15 +1108,15 @@ async def sms_worker(app):
                 if not alive:
                     panel._logged_in         = False
                     worker_info["logged_in"] = False
-                    await notify_admins(app, "⚠️ <b>Session Expired</b>\nRe-authenticating...")
+                    await notify_admins(app, "<b>Session Expired</b> — Re-authenticating...")
                 keepalive_timer = 0
 
-            html, err = await panel.fetch_cdr()
+            rows, err = await panel.fetch_cdr()
 
             if err == "session_expired":
                 panel._logged_in         = False
                 worker_info["logged_in"] = False
-                await notify_admins(app, "⚠️ <b>Session Expired</b>\nRe-authenticating...")
+                await notify_admins(app, "<b>Session Expired</b> — Re-authenticating...")
                 continue
 
             if err:
@@ -1148,13 +1124,12 @@ async def sms_worker(app):
                 await asyncio.sleep(POLL_INTERVAL)
                 continue
 
-            if html:
-                for row in parse_sms_rows(html):
+            if rows:
+                for row in rows:
                     try:
-                        sms    = (row.get("sms")    or "").strip()
-                        number = (row.get("number") or "").strip()
-                        date   = (row.get("date")   or "").strip()
-                        cli    = (row.get("cli")    or "").strip()
+                        sms    = row.get("sms", "").strip()
+                        number = row.get("number", "").strip()
+                        date   = row.get("date", "").strip()
 
                         if not sms or not number:
                             continue
@@ -1165,8 +1140,6 @@ async def sms_worker(app):
                         if not otp:
                             continue
 
-                        service = detect_service(cli, sms)
-
                         h = hashlib.md5(f"{date}{number}{sms}".encode()).hexdigest()
 
                         if h in otp_cache:
@@ -1175,7 +1148,7 @@ async def sms_worker(app):
                             otp_cache.add(h)
                             continue
 
-                        text_msg, markup = format_otp_message(row, otp, service)
+                        text_msg, markup = format_otp_message(row, otp)
 
                         await app.bot.send_photo(
                             chat_id=OTP_GROUP_ID,
@@ -1189,29 +1162,35 @@ async def sms_worker(app):
                         db.execute(
                             "INSERT OR IGNORE INTO otp_history "
                             "(hash, number, otp, service, sms, range_name) VALUES (?,?,?,?,?,?)",
-                            (h, number, otp, service, sms, row.get("range", "")),
+                            (h, number, otp, row.get("service", ""), sms, row.get("range", "")),
                         )
                         db.execute(
                             "INSERT INTO traffic "
-                            "(range_name, number, cli, sms, otp, service, received_at) "
-                            "VALUES (?,?,?,?,?,?,?)",
+                            "(range_name, number, sms, otp, service, received_at) "
+                            "VALUES (?,?,?,?,?,?)",
                             (
                                 row.get("range", ""),
                                 number,
-                                cli,
                                 sms,
                                 otp,
-                                service,
+                                row.get("service", ""),
                                 date,
                             ),
                         )
                         worker_info["last_otp"]    = datetime.now().strftime("%H:%M:%S")
                         worker_info["otps_today"] += 1
-                        logger.info(f"OTP sent | {mask_number(number)} | {otp} | {service}")
+                        logger.info(f"OTP sent | {mask_number(number)} | {otp} | {row.get('service')}")
 
                     except Exception as row_err:
                         logger.error(f"Row error: {row_err}")
                         continue
+
+            # trim otp_cache to prevent unbounded memory growth
+            if len(otp_cache) > 50000:
+                otp_cache.clear()
+                rows = db.fetchall("SELECT hash FROM otp_history ORDER BY id DESC LIMIT 30000")
+                for r in rows:
+                    otp_cache.add(r["hash"])
 
             await asyncio.sleep(POLL_INTERVAL)
 
@@ -1223,30 +1202,30 @@ async def sms_worker(app):
             if worker_info["errors"] % 5 == 0:
                 await notify_admins(
                     app,
-                    f"🚨 <b>Worker Error</b>\n<code>{e}</code>\nAuto-recovering...",
+                    f"<b>Worker Error</b>\n<code>{e}</code>\nAuto-recovering...",
                 )
             await asyncio.sleep(15)
 
     worker_info["running"] = False
 
 
-BANNED_TEXT = "🚫 You have been banned from using this bot."
-MAINT_TEXT  = "🔧 Bot is under maintenance. Please check back soon."
+# ── GATE ──────────────────────────────────────────────────────────────────────
+BANNED_TEXT = "You have been banned from using this bot."
+MAINT_TEXT  = "Bot is under maintenance. Please check back soon."
 JOIN_TEXT   = (
-    f"👋 <b>Welcome to {BOT_NAME}!</b>\n\n"
-    f"⚠️ You must join our channels before using the bot.\n"
-    f"Please join all channels below then tap <b>Verify</b>:"
+    f"<b>Welcome to {BOT_NAME}!</b>\n\n"
+    f"You must join our channels before using the bot.\n"
+    f"Join all channels below then tap Verify:"
 )
 WELCOME_TEXT = (
-    f"╭─⟦ <b>ᴍʀ.ᴀғʀɪx</b> ⟧─⊷\n"
+    f"╭─⟦ <b>{BOT_NAME}</b> ⟧─⊷\n"
     f"┃\n"
-    f"┃  Welcome to MR.AFRIX OTP Bot\n"
     f"┃  Live OTP monitoring 24/7\n"
     f"┃\n"
     f"╰━━━━━━━━━━━⊷"
 )
 WELCOME_ADMIN_TEXT = (
-    f"╭─⟦ <b>ᴍʀ.ᴀғʀɪx</b> ⟧─⊷\n"
+    f"╭─⟦ <b>{BOT_NAME}</b> ⟧─⊷\n"
     f"┃\n"
     f"┃  Welcome back, Admin\n"
     f"┃  Full access granted\n"
@@ -1258,14 +1237,13 @@ WELCOME_ADMIN_TEXT = (
 async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     register_user(user)
-
     if is_admin(user.id):
         return True
     if is_banned(user.id):
         await send_with_banner(context.bot, update.effective_chat.id, BANNED_TEXT)
         return False
     if is_flooded(user.id):
-        await send_with_banner(context.bot, update.effective_chat.id, "⚠️ Slow down.")
+        await send_with_banner(context.bot, update.effective_chat.id, "Slow down.")
         return False
     if maintenance:
         await send_with_banner(context.bot, update.effective_chat.id, MAINT_TEXT)
@@ -1282,6 +1260,7 @@ async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return True
 
 
+# ── COMMAND HANDLERS ──────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
@@ -1291,7 +1270,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_with_banner(context.bot, update.effective_chat.id, BANNED_TEXT)
             return
         if is_flooded(user.id):
-            await send_with_banner(context.bot, update.effective_chat.id, "⚠️ Slow down.")
+            await send_with_banner(context.bot, update.effective_chat.id, "Slow down.")
             return
         if maintenance:
             await send_with_banner(context.bot, update.effective_chat.id, MAINT_TEXT)
@@ -1307,80 +1286,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     await update.message.reply_text("✅", reply_markup=main_menu_reply(user.id))
-
     welcome = WELCOME_ADMIN_TEXT if is_admin(user.id) else WELCOME_TEXT
     await send_with_banner(
         context.bot,
         update.effective_chat.id,
         welcome,
         reply_markup=main_menu_inline(user.id),
-    )
-
-
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await gate(update, context):
-        return
-    user      = update.effective_user
-    w_status  = "🟢 Running" if worker_info["running"] else "🔴 Stopped"
-    p_status  = "✅ Logged In" if worker_info["logged_in"] else "❌ Logged Out"
-    maint     = "🔧 ON" if maintenance else "✅ OFF"
-    total     = db.fetchone("SELECT COUNT(*) AS c FROM otp_history")["c"]
-    today_s   = datetime.now().strftime("%Y-%m-%d")
-    today_c   = db.fetchone(
-        "SELECT COUNT(*) AS c FROM otp_history WHERE added_at LIKE ?",
-        (f"{today_s}%",),
-    )["c"]
-    total_nums = db.fetchone("SELECT COUNT(*) AS c FROM numbers")["c"]
-    avail_nums = db.fetchone("SELECT COUNT(*) AS c FROM numbers WHERE is_used=0")["c"]
-    await send_with_banner(
-        context.bot,
-        update.effective_chat.id,
-        f"╭─⟦ <b>𝐒𝐓𝐀𝐓𝐔𝐒</b> ⟧─⊷\n"
-        f"┃\n"
-        f"┃ ⦿ 𝐖𝐎𝐑𝐊𝐄𝐑  : {w_status}\n"
-        f"┃ ⦿ 𝐏𝐀𝐍𝐄𝐋   : {p_status}\n"
-        f"┃ ⦿ 𝐌𝐀𝐈𝐍𝐓   : {maint}\n"
-        f"┃ ⦿ 𝐓𝐎𝐓𝐀𝐋   : {total} OTPs\n"
-        f"┃ ⦿ 𝐓𝐎𝐃𝐀𝐘   : {today_c} OTPs\n"
-        f"┃ ⦿ 𝐍𝐔𝐌𝐒    : {avail_nums}/{total_nums}\n"
-        f"┃ ⦿ 𝐋𝐀𝐒𝐓    : {worker_info['last_otp']}\n"
-        f"┃\n"
-        f"╰━━━━━━━━━━━⊷",
-        reply_markup=back_to_menu(),
-    )
-
-
-async def traffic_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await gate(update, context):
-        return
-    user = update.effective_user
-    rows = db.fetchall(
-        "SELECT range_name, number, sms, otp, service, received_at "
-        "FROM traffic ORDER BY id DESC LIMIT 20"
-    )
-    if not rows:
-        await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            "📭 No traffic recorded yet.",
-            reply_markup=back_to_menu(),
-        )
-        return
-    lines = ["╭─⟦ <b>𝐋𝐈𝐕𝐄 𝐓𝐑𝐀𝐅𝐅𝐈𝐂</b> ⟧─⊷\n┃"]
-    for r in rows:
-        masked       = mask_number(r["number"])
-        country_name, flag = get_country_info(r["number"])
-        otp_val      = r["otp"] or extract_otp(r["sms"] or "") or "—"
-        service      = r["service"] or "—"
-        lines.append(
-            f"┃ {flag} <code>{masked}</code> | {service} | <b>{otp_val}</b> | {r['received_at'] or '—'}"
-        )
-    lines.append("┃\n╰━━━━━━━━━━━⊷")
-    await send_with_banner(
-        context.bot,
-        update.effective_chat.id,
-        "\n".join(lines),
-        reply_markup=back_to_menu(),
     )
 
 
@@ -1402,11 +1313,12 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_with_banner(
         context.bot,
         update.effective_chat.id,
-        "❌ Action cancelled.",
+        "Action cancelled.",
         reply_markup=main_menu_inline(user.id),
     )
 
 
+# ── CALLBACK HANDLER ──────────────────────────────────────────────────────────
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global maintenance
     query = update.callback_query
@@ -1425,7 +1337,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             welcome = WELCOME_ADMIN_TEXT if is_admin(user.id) else WELCOME_TEXT
             await edit_with_banner(query, welcome, reply_markup=main_menu_inline(user.id))
         else:
-            await query.answer("❌ You haven't joined all channels yet!", show_alert=True)
+            await query.answer("You haven't joined all channels yet!", show_alert=True)
         return
 
     if data == "menu_back":
@@ -1435,7 +1347,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu_admin":
         if not is_admin(user.id):
-            await query.answer("⛔ Admins only.", show_alert=True)
+            await query.answer("Admins only.", show_alert=True)
             return
         await edit_with_banner(query, admin_text(), reply_markup=admin_markup())
         return
@@ -1447,12 +1359,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_users = db.fetchone("SELECT COUNT(*) AS c FROM users")["c"]
         await edit_with_banner(
             query,
-            f"╭─⟦ <b>ᴀʙᴏᴜᴛ</b> ⟧─⊷\n"
+            f"╭─⟦ <b>ABOUT</b> ⟧─⊷\n"
             f"┃\n"
-            f"┃ ⦿ 𝐁𝐎𝐓     : {BOT_NAME}\n"
-            f"┃ ⦿ 𝐎𝐓𝐏𝐒    : {total}\n"
-            f"┃ ⦿ 𝐍𝐔𝐌𝐁𝐄𝐑𝐒 : {avail_nums}/{total_nums}\n"
-            f"┃ ⦿ 𝐔𝐒𝐄𝐑𝐒   : {total_users}\n"
+            f"┃ Bot     : {BOT_NAME}\n"
+            f"┃ OTPs    : {total}\n"
+            f"┃ Numbers : {avail_nums}/{total_nums}\n"
+            f"┃ Users   : {total_users}\n"
             f"┃\n"
             f"╰━━━━━━━━━━━⊷",
             reply_markup=back_to_menu(),
@@ -1461,24 +1373,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu_traffic":
         if not is_admin(user.id) and is_flooded(user.id):
-            await query.answer("⚠️ Slow down!", show_alert=True)
+            await query.answer("Slow down!", show_alert=True)
             return
         rows = db.fetchall(
-            "SELECT range_name, number, sms, otp, service, received_at "
+            "SELECT number, sms, otp, service, received_at "
             "FROM traffic ORDER BY id DESC LIMIT 20"
         )
         if not rows:
-            await edit_with_banner(query, "📭 No traffic recorded yet.", reply_markup=back_to_menu())
+            await edit_with_banner(query, "No traffic recorded yet.", reply_markup=back_to_menu())
             return
-        lines = ["╭─⟦ <b>𝐋𝐈𝐕𝐄 𝐓𝐑𝐀𝐅𝐅𝐈𝐂</b> ⟧─⊷\n┃"]
+        lines = ["╭─⟦ <b>LIVE TRAFFIC</b> ⟧─⊷\n┃"]
         for r in rows:
             masked           = mask_number(r["number"])
-            country_name, flag = get_country_info(r["number"])
-            otp_val          = r["otp"] or extract_otp(r["sms"] or "") or "—"
+            _, flag          = get_country_info(r["number"])
+            otp_val          = r["otp"] or "—"
             service          = r["service"] or "—"
-            lines.append(
-                f"┃ {flag} <code>{masked}</code> | {service} | <b>{otp_val}</b> | {r['received_at'] or '—'}"
-            )
+            lines.append(f"┃ {flag} <code>{masked}</code> | {service} | <b>{otp_val}</b>")
         lines.append("┃\n╰━━━━━━━━━━━⊷")
         await edit_with_banner(query, "\n".join(lines), reply_markup=back_to_menu())
         return
@@ -1491,13 +1401,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if markup is None:
             await edit_with_banner(
                 query,
-                "╭─⟦ <b>𝐍𝐔𝐌𝐁𝐄𝐑𝐒</b> ⟧─⊷\n┃\n┃  No numbers available right now\n┃  Check back soon!\n┃\n╰━━━━━━━━━━━⊷",
+                "No numbers available right now. Check back soon.",
                 reply_markup=back_to_menu(),
             )
             return
         await edit_with_banner(
             query,
-            "╭─⟦ <b>𝐆𝐄𝐓 𝐍𝐔𝐌𝐁𝐄𝐑</b> ⟧─⊷\n┃\n┃  Step 1 — Pick your service\n┃\n╰━━━━━━━━━━━⊷",
+            "╭─⟦ <b>GET NUMBER</b> ⟧─⊷\n┃\n┃  Pick your service\n┃\n╰━━━━━━━━━━━⊷",
             reply_markup=markup,
         )
         return
@@ -1506,11 +1416,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         service = data.replace("gns__", "")
         _, markup = build_country_grid_for_service(service)
         if markup is None:
-            await query.answer("❌ No numbers for this service!", show_alert=True)
+            await query.answer("No numbers for this service!", show_alert=True)
             return
         await edit_with_banner(
             query,
-            f"╭─⟦ <b>𝐆𝐄𝐓 𝐍𝐔𝐌𝐁𝐄𝐑</b> ⟧─⊷\n┃\n┃  Service: <b>{service}</b>\n┃  Step 2 — Pick your country\n┃\n╰━━━━━━━━━━━⊷",
+            f"╭─⟦ <b>GET NUMBER</b> ⟧─⊷\n┃\n┃  Service: <b>{service}</b>\n┃  Pick your country\n┃\n╰━━━━━━━━━━━⊷",
             reply_markup=markup,
         )
         return
@@ -1522,7 +1432,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         wait = check_number_cooldown(user.id)
         if wait > 0 and not is_admin(user.id):
-            await query.answer(f"⏳ Wait {wait}s before getting another number.", show_alert=True)
+            await query.answer(f"Wait {wait}s before getting another number.", show_alert=True)
             return
 
         row = db.fetchone(
@@ -1530,7 +1440,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (country, service),
         )
         if not row:
-            await query.answer("❌ No numbers left for this slot!", show_alert=True)
+            await query.answer("No numbers left for this slot!", show_alert=True)
             return
 
         num_id = row["id"]
@@ -1547,7 +1457,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (country, service),
             )
             if not row2:
-                await query.answer("❌ No numbers left! Try again.", show_alert=True)
+                await query.answer("No numbers left! Try again.", show_alert=True)
                 return
             num_id = row2["id"]
             number = row2["number"]
@@ -1559,7 +1469,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user.id):
             set_number_cooldown(user.id)
 
-        country_name, country_flag = get_country_info(number)
+        country_name, flag = get_country_info(number)
         display    = f"+{number}" if not number.startswith("+") else number
         avail_left = db.fetchone(
             "SELECT COUNT(*) AS c FROM numbers WHERE country=? AND service=? AND is_used=0",
@@ -1567,22 +1477,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )["c"]
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
-            [InlineKeyboardButton("💬 OTP Group", url=OTP_GROUP_LINK)],
-            [InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"gns__{service}")],
+            [InlineKeyboardButton("Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
+            [
+                InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
+                InlineKeyboardButton("Back", callback_data=f"gns__{service}"),
+            ],
         ])
 
         await edit_with_banner(
             query,
-            f"╭─⟦ <b>𝐘𝐎𝐔𝐑 𝐍𝐔𝐌𝐁𝐄𝐑</b> ⟧─⊷\n"
+            f"╭─⟦ <b>YOUR NUMBER</b> ⟧─⊷\n"
             f"┃\n"
-            f"┃ ⦿ 𝐍𝐔𝐌𝐁𝐄𝐑  : <code>{display}</code>\n"
-            f"┃ ⦿ 𝐒𝐄𝐑𝐕𝐈𝐂𝐄 : {service}\n"
-            f"┃ ⦿ 𝐂𝐎𝐔𝐍𝐓𝐑𝐘 : {country_flag} {country_name}\n"
-            f"┃ ⦿ 𝐋𝐄𝐅𝐓    : {avail_left} remaining\n"
+            f"┃ Number  : <code>{display}</code>\n"
+            f"┃ Service : {service}\n"
+            f"┃ Country : {flag} {country_name}\n"
+            f"┃ Left    : {avail_left} remaining\n"
             f"┃\n"
             f"╰━━━━━━━━━━━⊷\n\n"
-            f"<i>Tap the number to copy. Watch for OTP in the group.</i>",
+            f"<i>Tap to copy. Watch OTP in the group.</i>",
             reply_markup=markup,
         )
         return
@@ -1595,25 +1507,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         wait = check_number_cooldown(user.id)
         if wait > 0 and not is_admin(user.id):
-            await query.answer(f"⏳ Wait {wait}s before changing.", show_alert=True)
+            await query.answer(f"Wait {wait}s before changing.", show_alert=True)
             return
 
         if old_id:
             db.execute("UPDATE numbers SET is_used=2 WHERE id=? AND used_by=?", (old_id, user.id))
-        else:
-            old = db.fetchone(
-                "SELECT id FROM numbers WHERE country=? AND service=? AND used_by=? AND is_used=1",
-                (country, service, user.id),
-            )
-            if old:
-                db.execute("UPDATE numbers SET is_used=2 WHERE id=?", (old["id"],))
 
         row = db.fetchone(
             "SELECT id, number FROM numbers WHERE country=? AND service=? AND is_used=0 LIMIT 1",
             (country, service),
         )
         if not row:
-            await query.answer("❌ No more numbers available!", show_alert=True)
+            await query.answer("No more numbers available!", show_alert=True)
             return
 
         num_id = row["id"]
@@ -1630,7 +1535,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (country, service),
             )
             if not row2:
-                await query.answer("❌ No more numbers!", show_alert=True)
+                await query.answer("No more numbers!", show_alert=True)
                 return
             num_id = row2["id"]
             number = row2["number"]
@@ -1642,7 +1547,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user.id):
             set_number_cooldown(user.id)
 
-        country_name, country_flag = get_country_info(number)
+        country_name, flag = get_country_info(number)
         display    = f"+{number}" if not number.startswith("+") else number
         avail_left = db.fetchone(
             "SELECT COUNT(*) AS c FROM numbers WHERE country=? AND service=? AND is_used=0",
@@ -1650,26 +1555,29 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )["c"]
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
-            [InlineKeyboardButton("💬 OTP Group", url=OTP_GROUP_LINK)],
-            [InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"gns__{service}")],
+            [InlineKeyboardButton("Change Number", callback_data=f"chgn__{country}__{service}__{num_id}")],
+            [
+                InlineKeyboardButton("OTP Group", url=OTP_GROUP_LINK),
+                InlineKeyboardButton("Back", callback_data=f"gns__{service}"),
+            ],
         ])
 
         await edit_with_banner(
             query,
-            f"╭─⟦ <b>𝐍𝐔𝐌𝐁𝐄𝐑 𝐂𝐇𝐀𝐍𝐆𝐄𝐃</b> ⟧─⊷\n"
+            f"╭─⟦ <b>NUMBER CHANGED</b> ⟧─⊷\n"
             f"┃\n"
-            f"┃ ⦿ 𝐍𝐔𝐌𝐁𝐄𝐑  : <code>{display}</code>\n"
-            f"┃ ⦿ 𝐒𝐄𝐑𝐕𝐈𝐂𝐄 : {service}\n"
-            f"┃ ⦿ 𝐂𝐎𝐔𝐍𝐓𝐑𝐘 : {country_flag} {country_name}\n"
-            f"┃ ⦿ 𝐋𝐄𝐅𝐓    : {avail_left} remaining\n"
+            f"┃ Number  : <code>{display}</code>\n"
+            f"┃ Service : {service}\n"
+            f"┃ Country : {flag} {country_name}\n"
+            f"┃ Left    : {avail_left} remaining\n"
             f"┃\n"
             f"╰━━━━━━━━━━━⊷\n\n"
-            f"<i>Tap the number to copy. Watch for OTP in the group.</i>",
+            f"<i>Tap to copy. Watch OTP in the group.</i>",
             reply_markup=markup,
         )
         return
 
+    # ── ADMIN ONLY BELOW ──────────────────────────────────────────────────────
     if not is_admin(user.id):
         return
 
@@ -1680,45 +1588,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "adm_cancel_state":
         USER_STATE.pop(user.id, None)
-        await edit_with_banner(query, "❌ <b>Action cancelled.</b>", reply_markup=admin_markup())
+        await edit_with_banner(query, "Action cancelled.", reply_markup=admin_markup())
         return
 
     if data == "adm_toggle_maint":
         maintenance = not maintenance
         db.set_setting("maintenance", "1" if maintenance else "0")
-        state = "enabled 🔧" if maintenance else "disabled ✅"
+        state = "enabled" if maintenance else "disabled"
         await edit_with_banner(
             query,
-            f"🔧 Maintenance mode <b>{state}</b>.",
+            f"Maintenance mode <b>{state}</b>.",
             reply_markup=back_to_admin(),
         )
         return
 
     if data == "adm_stats":
-        total_users   = db.fetchone("SELECT COUNT(*) AS c FROM users")["c"]
-        banned_c      = db.fetchone("SELECT COUNT(*) AS c FROM users WHERE is_banned=1")["c"]
-        total_otps    = db.fetchone("SELECT COUNT(*) AS c FROM otp_history")["c"]
-        today_str     = datetime.now().strftime("%Y-%m-%d")
-        today_otps    = db.fetchone(
+        total_users = db.fetchone("SELECT COUNT(*) AS c FROM users")["c"]
+        banned_c    = db.fetchone("SELECT COUNT(*) AS c FROM users WHERE is_banned=1")["c"]
+        total_otps  = db.fetchone("SELECT COUNT(*) AS c FROM otp_history")["c"]
+        today_str   = datetime.now().strftime("%Y-%m-%d")
+        today_otps  = db.fetchone(
             "SELECT COUNT(*) AS c FROM otp_history WHERE added_at LIKE ?",
             (f"{today_str}%",),
         )["c"]
         total_nums = db.fetchone("SELECT COUNT(*) AS c FROM numbers")["c"]
         avail_nums = db.fetchone("SELECT COUNT(*) AS c FROM numbers WHERE is_used=0")["c"]
         used_nums  = db.fetchone("SELECT COUNT(*) AS c FROM numbers WHERE is_used=1")["c"]
-        w_status   = "🟢 Running" if worker_info["running"] else "🔴 Stopped"
-        p_status   = "✅ Logged In" if worker_info["logged_in"] else "❌ Logged Out"
+        w_status   = "Running" if worker_info["running"] else "Stopped"
+        p_status   = "Logged In" if worker_info["logged_in"] else "Logged Out"
         await edit_with_banner(
             query,
-            f"╭─⟦ <b>𝐒𝐓𝐀𝐓𝐒</b> ⟧─⊷\n"
+            f"╭─⟦ <b>STATS</b> ⟧─⊷\n"
             f"┃\n"
-            f"┃ ⦿ 𝐔𝐒𝐄𝐑𝐒   : {total_users} | banned: {banned_c}\n"
-            f"┃ ⦿ 𝐎𝐓𝐏𝐒    : {total_otps} | today: {today_otps}\n"
-            f"┃ ⦿ 𝐍𝐔𝐌𝐒    : {avail_nums} free / {used_nums} used / {total_nums} total\n"
-            f"┃ ⦿ 𝐖𝐎𝐑𝐊𝐄𝐑  : {w_status}\n"
-            f"┃ ⦿ 𝐏𝐀𝐍𝐄𝐋   : {p_status}\n"
-            f"┃ ⦿ 𝐋𝐀𝐒𝐓    : {worker_info['last_otp']}\n"
-            f"┃ ⦿ 𝐒𝐓𝐀𝐑𝐓   : {worker_info['started_at']}\n"
+            f"┃ Users   : {total_users} | banned: {banned_c}\n"
+            f"┃ OTPs    : {total_otps} | today: {today_otps}\n"
+            f"┃ Nums    : {avail_nums} free / {used_nums} used / {total_nums} total\n"
+            f"┃ Worker  : {w_status}\n"
+            f"┃ Panel   : {p_status}\n"
+            f"┃ Last    : {worker_info['last_otp']}\n"
+            f"┃ Start   : {worker_info['started_at']}\n"
             f"┃\n"
             f"╰━━━━━━━━━━━⊷",
             reply_markup=back_to_admin(),
@@ -1726,23 +1634,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "adm_worker":
-        w_status = "🟢 Running" if worker_info["running"] else "🔴 Stopped"
-        p_status = "✅ Logged In" if worker_info["logged_in"] else "❌ Logged Out"
+        w_status = "Running" if worker_info["running"] else "Stopped"
+        p_status = "Logged In" if worker_info["logged_in"] else "Logged Out"
         await edit_with_banner(
             query,
-            f"╭─⟦ <b>𝐖𝐎𝐑𝐊𝐄𝐑</b> ⟧─⊷\n"
+            f"╭─⟦ <b>WORKER</b> ⟧─⊷\n"
             f"┃\n"
-            f"┃ ⦿ 𝐖𝐎𝐑𝐊𝐄𝐑    : {w_status}\n"
-            f"┃ ⦿ 𝐏𝐀𝐍𝐄𝐋     : {p_status}\n"
-            f"┃ ⦿ 𝐎𝐓𝐏𝐒 𝐓𝐎𝐃𝐀𝐘 : {worker_info['otps_today']}\n"
-            f"┃ ⦿ 𝐋𝐀𝐒𝐓 𝐎𝐓𝐏   : {worker_info['last_otp']}\n"
-            f"┃ ⦿ 𝐋𝐀𝐒𝐓 𝐋𝐎𝐆𝐈𝐍 : {worker_info['last_login']}\n"
-            f"┃ ⦿ 𝐄𝐑𝐑𝐎𝐑𝐒     : {worker_info['errors']}\n"
+            f"┃ Worker    : {w_status}\n"
+            f"┃ Panel     : {p_status}\n"
+            f"┃ OTPs Today: {worker_info['otps_today']}\n"
+            f"┃ Last OTP  : {worker_info['last_otp']}\n"
+            f"┃ Last Login: {worker_info['last_login']}\n"
+            f"┃ Errors    : {worker_info['errors']}\n"
             f"┃\n"
             f"╰━━━━━━━━━━━⊷",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔁 Force Re-Login", callback_data="adm_relogin")],
-                [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("Force Re-Login", callback_data="adm_relogin")],
+                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
             ]),
         )
         return
@@ -1756,8 +1664,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             panel._session = None
         await edit_with_banner(
             query,
-            "🔁 <b>Re-login triggered.</b>\nWorker will re-authenticate on next cycle.",
+            "Re-login triggered. Worker will re-authenticate on next cycle.",
             reply_markup=back_to_admin(),
+        )
+        return
+
+    if data == "adm_add_admin":
+        USER_STATE[user.id] = "ADD_ADMIN"
+        await edit_with_banner(
+            query,
+            "Send the <b>user ID</b> of the new admin:",
+            reply_markup=cancel_state_markup("adm_back"),
         )
         return
 
@@ -1765,61 +1682,57 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         USER_STATE[user.id] = "BROADCAST"
         await edit_with_banner(
             query,
-            "📢 <b>Broadcast</b>\n\n"
-            "Send your message. HTML supported.\n\n"
-            "Add inline buttons at the end:\n"
-            "<code>[Label|https://url.com]</code>",
+            "<b>Broadcast</b>\n\nSend your message. HTML supported.\n\n"
+            "Add inline buttons:\n<code>[Label|https://url.com]</code>",
             reply_markup=cancel_state_markup("adm_back"),
         )
         return
 
     if data == "adm_traffic":
         rows = db.fetchall(
-            "SELECT range_name, number, sms, otp, service, received_at "
+            "SELECT number, sms, otp, service, received_at "
             "FROM traffic ORDER BY id DESC LIMIT 20"
         )
         if not rows:
-            await edit_with_banner(query, "📭 No traffic yet.", reply_markup=back_to_admin())
+            await edit_with_banner(query, "No traffic yet.", reply_markup=back_to_admin())
             return
-        lines = ["╭─⟦ <b>𝐓𝐑𝐀𝐅𝐅𝐈𝐂 𝐋𝐎𝐆</b> ⟧─⊷\n┃"]
+        lines = ["╭─⟦ <b>TRAFFIC LOG</b> ⟧─⊷\n┃"]
         for r in rows:
-            masked           = mask_number(r["number"])
-            country_name, flag = get_country_info(r["number"])
-            otp_val          = r["otp"] or "—"
-            service          = r["service"] or "—"
-            lines.append(
-                f"┃ {flag} <code>{masked}</code> | {service} | <b>{otp_val}</b> | {r['received_at'] or '—'}"
-            )
+            masked  = mask_number(r["number"])
+            _, flag = get_country_info(r["number"])
+            otp_val = r["otp"] or "—"
+            service = r["service"] or "—"
+            lines.append(f"┃ {flag} <code>{masked}</code> | {service} | <b>{otp_val}</b>")
         lines.append("┃\n╰━━━━━━━━━━━⊷")
         await edit_with_banner(
             query,
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📥 Export", callback_data="adm_export_traffic")],
-                [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("Export CSV", callback_data="adm_export_traffic")],
+                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
             ]),
         )
         return
 
     if data == "adm_export_traffic":
         rows = db.fetchall(
-            "SELECT range_name, number, cli, sms, otp, service, received_at FROM traffic"
+            "SELECT range_name, number, sms, otp, service, received_at FROM traffic"
         )
-        lines = ["range_name,number,cli,sms,otp,service,received_at"]
+        lines = ["range_name,number,sms,otp,service,received_at"]
         for r in rows:
             sms_clean = (r["sms"] or "").replace(",", " ")
             lines.append(
-                f"{r['range_name']},{r['number']},{r['cli']},"
-                f"{sms_clean},{r['otp']},{r['service']},{r['received_at']}"
+                f"{r['range_name']},{r['number']},{sms_clean},"
+                f"{r['otp']},{r['service']},{r['received_at']}"
             )
         data_bytes = "\n".join(lines).encode()
         await context.bot.send_document(
             chat_id=user.id,
             document=BytesIO(data_bytes),
             filename="traffic_export.csv",
-            caption=f"📋 Traffic export — {len(rows)} records",
+            caption=f"Traffic export — {len(rows)} records",
         )
-        await query.answer("✅ Export sent!", show_alert=False)
+        await query.answer("Export sent!", show_alert=False)
         return
 
     if data == "adm_numbers":
@@ -1832,7 +1745,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "FROM numbers GROUP BY country, service ORDER BY country LIMIT 15"
         )
         lines = [
-            f"╭─⟦ <b>𝐍𝐔𝐌𝐁𝐄𝐑𝐒 𝐃𝐁</b> ⟧─⊷\n"
+            f"╭─⟦ <b>NUMBERS DB</b> ⟧─⊷\n"
             f"┃\n"
             f"┃ Total: <b>{total_nums}</b> | Free: <b>{avail_nums}</b> | Used: <b>{used_nums}</b>\n"
             f"┃\n"
@@ -1846,11 +1759,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("➕ Add Numbers", callback_data="adm_add_numbers"),
-                    InlineKeyboardButton("🗑️ Remove Slot", callback_data="adm_remove_slot"),
+                    InlineKeyboardButton("Add Numbers", callback_data="adm_add_numbers"),
+                    InlineKeyboardButton("Remove Slot", callback_data="adm_remove_slot"),
                 ],
-                [InlineKeyboardButton("📥 Export", callback_data="adm_export_numbers")],
-                [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("Export", callback_data="adm_export_numbers")],
+                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
             ]),
         )
         return
@@ -1859,7 +1772,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         USER_STATE[user.id] = "ADM_ADD_COUNTRY"
         await edit_with_banner(
             query,
-            "🌍 <b>Add Numbers — Step 1</b>\n\nSend the <b>country name</b>:\n<i>Example: Ghana</i>",
+            "Add Numbers — Step 1\n\nSend the <b>country name</b>:\n<i>Example: Ghana</i>",
             reply_markup=cancel_state_markup("adm_numbers"),
         )
         return
@@ -1877,10 +1790,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = f"{r['country']} [{r['service']}] ({r['cnt']})"
             cb    = f"adm_delslot__{r['country']}__{r['service']}"
             buttons.append([InlineKeyboardButton(label, callback_data=cb)])
-        buttons.append([InlineKeyboardButton("⬅️ Back to Numbers", callback_data="adm_numbers")])
+        buttons.append([InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")])
         await edit_with_banner(
             query,
-            "🗑️ <b>Select slot to delete:</b>",
+            "Select slot to delete:",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
         return
@@ -1894,10 +1807,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).rowcount
         await edit_with_banner(
             query,
-            f"🗑️ Deleted <b>{deleted}</b> numbers from <b>{country} [{service}]</b>.",
+            f"Deleted <b>{deleted}</b> numbers from <b>{country} [{service}]</b>.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Back to Numbers", callback_data="adm_numbers")],
-                [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
+                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
             ]),
         )
         return
@@ -1917,9 +1830,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=user.id,
             document=BytesIO(data_bytes),
             filename="numbers_export.csv",
-            caption=f"🌍 Numbers export — {len(rows)} numbers",
+            caption=f"Numbers export — {len(rows)} numbers",
         )
-        await query.answer("✅ Export sent!", show_alert=False)
+        await query.answer("Export sent!", show_alert=False)
         return
 
     if data.startswith("adm_svc__"):
@@ -1929,22 +1842,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             country = state.replace("ADM_ADD_FILE_SVC__", "")
             USER_STATE[user.id] = f"WAITING_FILE__{country}__{service}"
             await send_with_banner(
-                context.bot,
-                user.id,
-                f"✅ Country: <b>{country}</b>\n"
-                f"⚙️ Service: <b>{service}</b>\n\n"
-                f"Now send the <b>.txt</b>, <b>.csv</b>, or <b>.xlsx</b> file:",
+                context.bot, user.id,
+                f"Country: <b>{country}</b>\nService: <b>{service}</b>\n\nSend the .txt/.csv/.xlsx file:",
                 reply_markup=cancel_state_markup("adm_numbers"),
             )
         elif state.startswith("ADM_ADD_TYPE_SVC__"):
             country = state.replace("ADM_ADD_TYPE_SVC__", "")
             USER_STATE[user.id] = f"TYPING_NUMBERS__{country}__{service}"
             await send_with_banner(
-                context.bot,
-                user.id,
-                f"✅ Country: <b>{country}</b>\n"
-                f"⚙️ Service: <b>{service}</b>\n\n"
-                f"Now send the numbers, one per line:",
+                context.bot, user.id,
+                f"Country: <b>{country}</b>\nService: <b>{service}</b>\n\nSend numbers, one per line:",
                 reply_markup=cancel_state_markup("adm_numbers"),
             )
         return
@@ -1956,18 +1863,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             country = state.replace("ADM_ADD_FILE_SVC__", "")
             USER_STATE[user.id] = f"ADM_CUSTOM_SVC_FILE__{country}"
             await send_with_banner(
-                context.bot,
-                user.id,
-                f"✍️ Type your <b>custom service name</b> for <b>{country}</b>:",
+                context.bot, user.id,
+                f"Type your custom service name for <b>{country}</b>:",
                 reply_markup=cancel_state_markup("adm_numbers"),
             )
         elif mode == "type" and state.startswith("ADM_ADD_TYPE_SVC__"):
             country = state.replace("ADM_ADD_TYPE_SVC__", "")
             USER_STATE[user.id] = f"ADM_CUSTOM_SVC_TYPE__{country}"
             await send_with_banner(
-                context.bot,
-                user.id,
-                f"✍️ Type your <b>custom service name</b> for <b>{country}</b>:",
+                context.bot, user.id,
+                f"Type your custom service name for <b>{country}</b>:",
                 reply_markup=cancel_state_markup("adm_numbers"),
             )
         return
@@ -1978,9 +1883,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             country = state.replace("ADM_ADD_METHOD__", "")
             USER_STATE[user.id] = f"ADM_ADD_FILE_SVC__{country}"
             await send_with_banner(
-                context.bot,
-                user.id,
-                f"🌍 Country: <b>{country}</b>\n\n⚙️ Select service for this file:",
+                context.bot, user.id,
+                f"Country: <b>{country}</b>\n\nSelect service for this file:",
                 reply_markup=_service_picker_markup("file"),
             )
         return
@@ -1991,14 +1895,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             country = state.replace("ADM_ADD_METHOD__", "")
             USER_STATE[user.id] = f"ADM_ADD_TYPE_SVC__{country}"
             await send_with_banner(
-                context.bot,
-                user.id,
-                f"🌍 Country: <b>{country}</b>\n\n⚙️ Select service:",
+                context.bot, user.id,
+                f"Country: <b>{country}</b>\n\nSelect service:",
                 reply_markup=_service_picker_markup("type"),
             )
         return
 
 
+# ── TEXT INPUT HANDLER ────────────────────────────────────────────────────────
 def _parse_broadcast_buttons(text):
     lines     = text.strip().splitlines()
     msg_lines = []
@@ -2020,24 +1924,23 @@ def _parse_broadcast_buttons(text):
             msg_lines.append(line)
     if btn_row:
         buttons.append(btn_row)
-    msg_lines.append(f"\n\n🤖 <a href='{BOT_LINK}'>{BOT_NAME}</a>")
+    msg_lines.append(f"\n\n<a href='{BOT_LINK}'>{BOT_NAME}</a>")
     markup = InlineKeyboardMarkup(buttons) if buttons else None
     return "\n".join(msg_lines), markup
 
 
 async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global maintenance
     user = update.effective_user
     text = (update.message.text or "").strip()
 
-    if text == "≡ Menu":
+    if text == "Menu":
         register_user(user)
         if not is_admin(user.id):
             if is_banned(user.id):
                 await send_with_banner(context.bot, update.effective_chat.id, BANNED_TEXT)
                 return
             if is_flooded(user.id):
-                await send_with_banner(context.bot, update.effective_chat.id, "⚠️ Slow down.")
+                await send_with_banner(context.bot, update.effective_chat.id, "Slow down.")
                 return
             if maintenance:
                 await send_with_banner(context.bot, update.effective_chat.id, MAINT_TEXT)
@@ -2045,54 +1948,66 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             joined = await check_membership(context.bot, user.id)
             if not joined:
                 await send_with_banner(
-                    context.bot,
-                    update.effective_chat.id,
-                    JOIN_TEXT,
-                    reply_markup=join_markup(),
+                    context.bot, update.effective_chat.id, JOIN_TEXT, reply_markup=join_markup()
                 )
                 return
         welcome = WELCOME_ADMIN_TEXT if is_admin(user.id) else WELCOME_TEXT
         await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            welcome,
-            reply_markup=main_menu_inline(user.id),
+            context.bot, update.effective_chat.id, welcome, reply_markup=main_menu_inline(user.id)
         )
         return
 
-    if text == "⚙️ Admin":
+    if text == "Admin":
         if not is_admin(user.id):
             return
         await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            admin_text(),
-            reply_markup=admin_markup(),
+            context.bot, update.effective_chat.id, admin_text(), reply_markup=admin_markup()
         )
         return
 
     if not is_admin(user.id):
         if is_banned(user.id):
             await send_with_banner(context.bot, update.effective_chat.id, BANNED_TEXT)
-            return
-        if is_flooded(user.id):
-            await send_with_banner(context.bot, update.effective_chat.id, "⚠️ You're sending too fast.")
-            return
+        return
 
     state = USER_STATE.get(user.id)
     if not state:
         return
 
+    # ADD ADMIN
+    if state == "ADD_ADMIN":
+        try:
+            new_admin_id = int(text.strip())
+            if new_admin_id not in ADMIN_IDS:
+                ADMIN_IDS.append(new_admin_id)
+                # persist to DB so it survives restarts
+                existing = db.get_setting("extra_admins")
+                ids = [i for i in existing.split(",") if i.strip()] if existing else []
+                if str(new_admin_id) not in ids:
+                    ids.append(str(new_admin_id))
+                db.set_setting("extra_admins", ",".join(ids))
+            USER_STATE.pop(user.id, None)
+            await send_with_banner(
+                context.bot, update.effective_chat.id,
+                f"Admin added: <code>{new_admin_id}</code>",
+                reply_markup=back_to_admin(),
+            )
+        except ValueError:
+            await send_with_banner(
+                context.bot, update.effective_chat.id,
+                "Invalid ID. Send a numeric user ID.",
+                reply_markup=cancel_state_markup("adm_back"),
+            )
+        return
+
+    # BROADCAST
     if state == "BROADCAST":
-        if not is_admin(user.id):
-            return
         all_users       = db.fetchall("SELECT user_id FROM users WHERE is_banned=0")
         broadcast_msg, broadcast_markup = _parse_broadcast_buttons(text)
         success, failed = 0, 0
         status_msg      = await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            f"📢 Broadcasting to {len(all_users)} users...",
+            context.bot, update.effective_chat.id,
+            f"Broadcasting to {len(all_users)} users...",
         )
         for u in all_users:
             try:
@@ -2127,86 +2042,61 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 chat_id=update.effective_chat.id,
                 message_id=status_msg.message_id,
                 caption=(
-                    f"📢 <b>Broadcast Complete</b>\n\n"
-                    f"✅ Sent   : {success}\n"
-                    f"❌ Failed : {failed}\n"
-                    f"📊 Total  : {len(all_users)}"
+                    f"<b>Broadcast Complete</b>\n\n"
+                    f"Sent   : {success}\n"
+                    f"Failed : {failed}\n"
+                    f"Total  : {len(all_users)}"
                 ),
                 parse_mode=ParseMode.HTML,
                 reply_markup=back_to_admin(),
             )
         except Exception:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=update.effective_chat.id,
-                    message_id=status_msg.message_id,
-                    text=(
-                        f"📢 <b>Broadcast Complete</b>\n\n"
-                        f"✅ Sent   : {success}\n"
-                        f"❌ Failed : {failed}\n"
-                        f"📊 Total  : {len(all_users)}"
-                    ),
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=back_to_admin(),
-                )
-            except Exception:
-                pass
+            pass
         return
 
     if state == "ADM_ADD_COUNTRY":
-        if not is_admin(user.id):
-            return
         country = text
         USER_STATE[user.id] = f"ADM_ADD_METHOD__{country}"
         await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            f"🌍 Country: <b>{country}</b>\n\nHow do you want to add numbers?",
+            context.bot, update.effective_chat.id,
+            f"Country: <b>{country}</b>\n\nHow do you want to add numbers?",
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("📁 Upload File", callback_data="adm_addmethod_file"),
-                    InlineKeyboardButton("✏️ Type Numbers", callback_data="adm_addmethod_type"),
+                    InlineKeyboardButton("Upload File", callback_data="adm_addmethod_file"),
+                    InlineKeyboardButton("Type Numbers", callback_data="adm_addmethod_type"),
                 ],
-                [InlineKeyboardButton("❌ Cancel", callback_data="adm_cancel_state")],
+                [InlineKeyboardButton("Cancel", callback_data="adm_cancel_state")],
             ]),
         )
         return
 
     if state and state.startswith("ADM_ADD_METHOD__"):
-        await send_with_banner(context.bot, update.effective_chat.id, "⏳ Use the buttons above.")
+        await send_with_banner(context.bot, update.effective_chat.id, "Use the buttons above.")
         return
 
     if state and state.startswith("ADM_CUSTOM_SVC_FILE__"):
-        if not is_admin(user.id):
-            return
         country = state.replace("ADM_CUSTOM_SVC_FILE__", "")
         service = text.strip()
         USER_STATE[user.id] = f"WAITING_FILE__{country}__{service}"
         await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            f"✅ Country: <b>{country}</b>\n⚙️ Service: <b>{service}</b>\n\nNow send the file:",
+            context.bot, update.effective_chat.id,
+            f"Country: <b>{country}</b>\nService: <b>{service}</b>\n\nNow send the file:",
             reply_markup=cancel_state_markup("adm_numbers"),
         )
         return
 
     if state and state.startswith("ADM_CUSTOM_SVC_TYPE__"):
-        if not is_admin(user.id):
-            return
         country = state.replace("ADM_CUSTOM_SVC_TYPE__", "")
         service = text.strip()
         USER_STATE[user.id] = f"TYPING_NUMBERS__{country}__{service}"
         await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            f"✅ Country: <b>{country}</b>\n⚙️ Service: <b>{service}</b>\n\nNow send numbers, one per line:",
+            context.bot, update.effective_chat.id,
+            f"Country: <b>{country}</b>\nService: <b>{service}</b>\n\nSend numbers, one per line:",
             reply_markup=cancel_state_markup("adm_numbers"),
         )
         return
 
     if state and state.startswith("TYPING_NUMBERS__"):
-        if not is_admin(user.id):
-            return
         parts   = state.replace("TYPING_NUMBERS__", "").split("__", 1)
         country = parts[0]
         service = parts[1] if len(parts) > 1 else "All"
@@ -2225,17 +2115,17 @@ async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 dupes += 1
         USER_STATE.pop(user.id, None)
         await send_with_banner(
-            context.bot,
-            update.effective_chat.id,
-            f"✅ <b>Done!</b>\n🌍 Country: {country}\n⚙️ Service: {service}\n📥 Added: {count}\n♻️ Dupes: {dupes}",
+            context.bot, update.effective_chat.id,
+            f"Done!\nCountry: {country}\nService: {service}\nAdded: {count}\nDupes: {dupes}",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Back to Numbers", callback_data="adm_numbers")],
-                [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
+                [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
             ]),
         )
         return
 
 
+# ── DOCUMENT HANDLER ──────────────────────────────────────────────────────────
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user  = update.effective_user
     if not is_admin(user.id):
@@ -2248,9 +2138,9 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     service = parts[1] if len(parts) > 1 else "All"
     doc     = update.message.document
     if not doc.file_name.endswith((".txt", ".csv", ".xlsx")):
-        await send_with_banner(context.bot, update.effective_chat.id, "❌ Invalid format. Use .txt, .csv, or .xlsx")
+        await send_with_banner(context.bot, update.effective_chat.id, "Invalid format. Use .txt, .csv, or .xlsx")
         return
-    waiting = await send_with_banner(context.bot, update.effective_chat.id, "⏳ Processing file...")
+    waiting = await send_with_banner(context.bot, update.effective_chat.id, "Processing file...")
     try:
         f       = await doc.get_file()
         content = await f.download_as_bytearray()
@@ -2263,12 +2153,12 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 dupes += 1
         result_text = (
-            f"✅ <b>File Processed!</b>\n"
-            f"🌍 Country    : <b>{country}</b>\n"
-            f"⚙️ Service    : <b>{service}</b>\n"
-            f"📄 File       : <b>{doc.file_name}</b>\n"
-            f"📥 Added      : <b>{count}</b>\n"
-            f"♻️ Duplicates : <b>{dupes}</b>"
+            f"File Processed!\n"
+            f"Country    : <b>{country}</b>\n"
+            f"Service    : <b>{service}</b>\n"
+            f"File       : <b>{doc.file_name}</b>\n"
+            f"Added      : <b>{count}</b>\n"
+            f"Duplicates : <b>{dupes}</b>"
         )
         try:
             await context.bot.edit_message_caption(
@@ -2277,26 +2167,25 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=result_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Back to Numbers", callback_data="adm_numbers")],
-                    [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                    [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
+                    [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
                 ]),
             )
         except Exception:
             await send_with_banner(
-                context.bot,
-                update.effective_chat.id,
-                result_text,
+                context.bot, update.effective_chat.id, result_text,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Back to Numbers", callback_data="adm_numbers")],
-                    [InlineKeyboardButton("⬅️ Back to Admin", callback_data="adm_back")],
+                    [InlineKeyboardButton("Back to Numbers", callback_data="adm_numbers")],
+                    [InlineKeyboardButton("Back to Admin", callback_data="adm_back")],
                 ]),
             )
     except Exception as e:
         logger.error(f"Document handler error: {e}")
-        await send_with_banner(context.bot, update.effective_chat.id, "❌ Error processing file.")
+        await send_with_banner(context.bot, update.effective_chat.id, "Error processing file.")
     USER_STATE.pop(user.id, None)
 
 
+# ── HEALTH SERVER ─────────────────────────────────────────────────────────────
 async def health_handler(request):
     return web.Response(
         text=json.dumps({
@@ -2312,6 +2201,7 @@ async def health_handler(request):
     )
 
 
+# ── POST INIT ─────────────────────────────────────────────────────────────────
 async def post_init(application):
     global maintenance
 
@@ -2319,17 +2209,26 @@ async def post_init(application):
     if saved_maint == "1":
         maintenance = True
 
+    # restore persisted extra admins
+    extra = db.get_setting("extra_admins")
+    if extra:
+        for eid in extra.split(","):
+            eid = eid.strip()
+            if eid.isdigit():
+                aid = int(eid)
+                if aid not in ADMIN_IDS:
+                    ADMIN_IDS.append(aid)
+    logger.info(f"Admin IDs loaded: {ADMIN_IDS}")
+
     rows = db.fetchall("SELECT hash FROM otp_history ORDER BY id DESC LIMIT 30000")
     for r in rows:
         otp_cache.add(r["hash"])
     logger.info(f"Loaded {len(otp_cache)} OTP hashes into cache")
 
     commands = [
-        BotCommand("start",   "Start the bot"),
-        BotCommand("traffic", "View recent OTP traffic"),
-        BotCommand("status",  "View bot status"),
-        BotCommand("admin",   "Admin panel"),
-        BotCommand("cancel",  "Cancel current action"),
+        BotCommand("start",  "Start the bot"),
+        BotCommand("admin",  "Admin panel"),
+        BotCommand("cancel", "Cancel current action"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered")
@@ -2344,11 +2243,11 @@ async def post_init(application):
     logger.info(f"Health server on port {PORT}")
 
     application.create_task(sms_worker(application))
-    logger.info(f"✅ {BOT_NAME} is fully live")
+    logger.info(f"{BOT_NAME} is fully live")
 
 
+# ── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -2361,18 +2260,16 @@ if __name__ == "__main__":
         .build()
     )
 
-    application.add_handler(CommandHandler("start",   start))
-    application.add_handler(CommandHandler("admin",   admin_cmd))
-    application.add_handler(CommandHandler("traffic", traffic_cmd))
-    application.add_handler(CommandHandler("status",  status_cmd))
-    application.add_handler(CommandHandler("cancel",  cancel_cmd))
+    application.add_handler(CommandHandler("start",  start))
+    application.add_handler(CommandHandler("admin",  admin_cmd))
+    application.add_handler(CommandHandler("cancel", cancel_cmd))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_input_handler)
     )
 
-    logger.info(f"🚀 Starting {BOT_NAME}...")
+    logger.info(f"Starting {BOT_NAME}...")
     application.run_polling(
         drop_pending_updates=True,
         allowed_updates=Update.ALL_TYPES,
