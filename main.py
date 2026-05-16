@@ -110,7 +110,7 @@ OTP_GROUP_LINK      = "https://t.me/afrixotpgc"
 OTP_GROUP_ID        = -1003053441379
 FORCE_CHANNELS      = ["@sage_xd", "@mr_afrix", "@oxellabs"]
 
-BANNER_URL          = "https://files.catbox.moe/apvmgp.jpg"
+BANNER_URL          = "https://files.catbox.moe/gxtkgb.jpg"
 
 DB_FILE             = "bot.db"
 PORT                = int(os.environ.get("PORT", 8080))
