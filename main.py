@@ -1111,6 +1111,7 @@ async def sms_worker(app):
                         _h = _hl.md5(f"{str(_r['date']).strip()}{str(_r['number']).strip()}{str(_r['sms']).strip()}".encode()).hexdigest()
                         otp_cache.add(_h)
                     logger.info(f"Startup cache: {len(_startup_rows)} existing rows pre-cached")
+                continue  # skip sending on first loop — only new OTPs from next poll
 
             keepalive_timer += POLL_INTERVAL
             if keepalive_timer >= KEEPALIVE_INTERVAL:
