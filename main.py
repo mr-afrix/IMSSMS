@@ -954,11 +954,16 @@ class PanelSession:
                     "Sec-Fetch-Mode":   "cors",
                     "Sec-Fetch-Site":   "same-origin",
                 },
-                allow_redirects=True,
+                allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(total=40),
             ) as resp:
-                final_url = str(resp.url).lower()
-                if "login" in final_url:
+                if resp.status in (301, 302, 303, 307, 308):
+                    location = str(resp.headers.get("Location", "")).lower()
+                    if "login" in location or resp.status in (301, 302, 303, 307, 308):
+                        self._logged_in = False
+                        return None, "session_expired"
+
+                if resp.status == 401 or resp.status == 403:
                     self._logged_in = False
                     return None, "session_expired"
 
@@ -1050,10 +1055,13 @@ async def sms_worker(app):
                 worker_info["last_login"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 worker_info["errors"]     = 0
                 session_expired_notified  = False
+                keepalive_timer           = 0
                 await notify_admins(
                     app,
                     f"ᴘᴀɴᴇʟ ʟᴏɢɪɴ sᴜᴄᴄᴇssғᴜʟ\n{BOT_NAME} ɪs ʟɪᴠᴇ ᴀɴᴅ ᴍᴏɴɪᴛᴏʀɪɴɢ.",
                 )
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
 
             keepalive_timer += POLL_INTERVAL
             if keepalive_timer >= KEEPALIVE_INTERVAL:
